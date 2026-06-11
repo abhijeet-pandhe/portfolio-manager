@@ -1,0 +1,9 @@
+- Create an server APP using which I can connect my zerodha account and manage portfolio based on specified logic (Docs: https://kite.trade/docs/connect/v3/). JS client - https://www.npmjs.com/package/kiteconnect
+- Logic would be that I will get the list of stocks currently in nifty 50, and we would only deal with them
+- Our portfolio will consist of 20 stocks always. Initially I will start with investing equal amount in the top 20 stocks
+- We will consider the XIRR if the investment period is more than 12 months, otherwise we will take absolute return
+- Our logic would invest more in the stocks that are performing the best. And it would remove the stocks that are not performing or at the bottom with negative returns.
+- We would only adjust our stocks once a month
+- A fixed amount would be invested every month, and it will be divided among the 20 stocks based on the their performance
+- If the stock is at the bottom of the list, based on XIRR / absolute return then we would replace it with top performing stock which is not in our portfolio from Nifty 50 list
+- Basically in this scheme we would incentivise the top performers and churn the bad performers
