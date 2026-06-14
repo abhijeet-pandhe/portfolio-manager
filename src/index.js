@@ -57,7 +57,7 @@ const portfolioCmd = program
 
 portfolioCmd
   .command('init')
-  .description('First-time setup: rank Nifty 50, buy top 15 with equal allocation')
+  .description('First-time setup: rank Nifty 50, buy 1 share each of top 15, save remainder to pool')
   .requiredOption('-a, --amount <number>', 'Total initial capital in INR')
   .option('--execute', 'Place real orders (default is preview/dry-run)')
   .action(function () {

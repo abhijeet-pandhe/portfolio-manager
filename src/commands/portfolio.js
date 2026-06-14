@@ -1,27 +1,14 @@
 const dayjs = require('dayjs');
 const chalk = require('chalk');
 const Table = require('cli-table3');
-const readline = require('readline');
 
 const { getPool } = require('../config/database');
 const { getKite } = require('../config/kite');
-const { getPositionScore } = require('../services/allocation');
+const { calculateWeights } = require('../services/allocation');
 const { getNifty50Symbols } = require('../services/nse');
 const { calculateRankings } = require('../services/ranking');
-
-async function confirm(question) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(resolve => rl.question(question, ans => { rl.close(); resolve(ans.trim().toLowerCase()); }));
-}
-
-function inr(n) {
-  return `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function pct(n, pad = 0) {
-  const s = `${(n * 100).toFixed(2)}%`;
-  return n >= 0 ? chalk.green(s.padStart(pad)) : chalk.red(s.padStart(pad));
-}
+const { getPortfolioPool, getCurrentPrices, setPortfolioPool, executeBuy } = require('../services/rebalance');
+const { confirm, inr, inrd, pct } = require('../helpers');
 
 // ─── status ──────────────────────────────────────────────────────────────────
 
@@ -36,48 +23,58 @@ async function showStatus() {
     return;
   }
 
-  const instruments = holdings.map(h => `NSE:${h.symbol}`);
-  const quotes = await getKite().getQuote(instruments);
+  const symbols = holdings.map(h => h.symbol);
+  const prices  = await getCurrentPrices(symbols);
+
+  // Batch-compute all allocation scores in 2 DB queries (replaces N×2 sequential calls)
+  const scoreWeights = await calculateWeights(symbols, prices);
+  const scoreMap = Object.fromEntries(scoreWeights.map(w => [w.symbol, w.rawScore]));
 
   const table = new Table({
-    head: ['Symbol', 'Qty', 'Avg Cost', 'LTP', 'Value', 'Abs Return', 'Held', 'Alloc Score'],
+    head: ['Symbol', 'Qty', 'Avg Cost', 'LTP', 'Value', 'Abs Return', 'Held', 'Alloc Score', 'Cash Pool'],
     style: { head: ['cyan'] },
-    colAligns: ['left', 'right', 'right', 'right', 'right', 'right', 'right', 'right'],
+    colAligns: ['left', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'right'],
   });
 
   let totalCost = 0;
   let totalValue = 0;
+  let totalCashPool = 0;
 
   for (const h of holdings) {
-    const quote = quotes[`NSE:${h.symbol}`];
-    const ltp = quote?.last_price || 0;
+    const ltp = prices[h.symbol] || 0;
     const value = ltp * h.quantity;
     const cost = h.average_price * h.quantity;
     const absReturn = (ltp - h.average_price) / h.average_price;
     const days = dayjs().diff(dayjs(h.first_buy_date), 'day');
-    const score = await getPositionScore(h.symbol, ltp);
+    const score = scoreMap[h.symbol] ?? 0;
+    const cashPool = parseFloat(h.cash_pool || 0);
 
     totalCost += cost;
     totalValue += value;
+    totalCashPool += cashPool;
 
     table.push([
       h.symbol,
       h.quantity,
-      inr(h.average_price),
-      inr(ltp),
+      inrd(h.average_price),
+      inrd(ltp),
       inr(value),
       pct(absReturn),
       `${days}d`,
       pct(score),
+      cashPool > 0 ? chalk.gray(`₹${cashPool.toFixed(2)}`) : chalk.gray('—'),
     ]);
   }
 
   console.log('\n' + table.toString());
 
+  const portfolioPool = await getPortfolioPool(pool);
   const totalReturn = (totalValue - totalCost) / totalCost;
-  console.log(`\nTotal Invested : ${inr(totalCost)}`);
-  console.log(`Total Value    : ${inr(totalValue)}`);
-  console.log(`Total Return   : ${pct(totalReturn)}  (${inr(totalValue - totalCost)})`);
+  console.log(`\nTotal Invested   : ${inr(totalCost)}`);
+  console.log(`Total Value      : ${inr(totalValue)}`);
+  console.log(`Total Return     : ${pct(totalReturn)}  (${inr(totalValue - totalCost)})`);
+  console.log(`\nStock pools      : ${chalk.gray(inr(totalCashPool))}  (leftover cash per position)`);
+  console.log(`Portfolio pool   : ${chalk.gray(inr(portfolioPool))}  (central cash, normally ₹0 between rebalances)`);
 }
 
 // ─── rankings ────────────────────────────────────────────────────────────────
@@ -165,87 +162,78 @@ async function showTransactions(symbol) {
 // ─── init ─────────────────────────────────────────────────────────────────────
 
 /**
- * First-time portfolio setup: rank Nifty 50, take top 15, buy equal allocation.
- * @param {number} totalAmount   Total initial capital in INR
- * @param {boolean} execute      false = preview only, true = place real orders
+ * First-time portfolio setup:
+ *  1. Buy exactly 1 share of each of the top-15 ranked stocks (rank order,
+ *     stop if pool runs dry for a stock).
+ *  2. Save the remaining cash in portfolio_pool.
+ *  3. The first monthly rebalance will then run the full weighted allocation
+ *     against that pool (by which point the positions have real returns).
  */
 async function initPortfolio(totalAmount, execute = false) {
   const pool = getPool();
 
-  // Warn if strategy DB already has positions
-  const [[{ cnt }]] = await pool.execute(
-    'SELECT COUNT(*) AS cnt FROM holdings WHERE quantity > 0'
-  );
+  const [[{ cnt }]] = await pool.execute('SELECT COUNT(*) AS cnt FROM holdings WHERE quantity > 0');
   if (cnt > 0) {
     console.log(chalk.yellow(`\nWarning: Strategy portfolio already has ${cnt} position(s).`));
-    console.log(chalk.yellow('initPortfolio will ADD to existing holdings, not replace them.'));
     if (execute) {
       const ans = await confirm('Continue anyway? (yes/no): ');
       if (ans !== 'yes') { console.log('Aborted.'); return; }
     }
   }
 
-  console.log(chalk.bold(`\n${'═'.repeat(52)}`));
+  console.log(chalk.bold(`\n${'═'.repeat(55)}`));
   console.log(chalk.bold(`  PORTFOLIO INITIALISATION${execute ? '' : chalk.yellow(' [PREVIEW]')}`));
-  console.log(chalk.bold(`${'═'.repeat(52)}\n`));
-  console.log(`Total capital : ${chalk.cyan(inr(totalAmount))}`);
-  console.log(`Per stock (÷15): ${chalk.cyan(inr(totalAmount / 15))}\n`);
+  console.log(chalk.bold(`${'═'.repeat(55)}\n`));
+  console.log(`Total capital : ${chalk.cyan(inr(totalAmount))}\n`);
 
-  // Nifty 50 + rankings
   console.log(chalk.bold('Step 1: Fetching Nifty 50 list...'));
   const nifty50 = await getNifty50Symbols();
   console.log(`  → ${nifty50.length} stocks\n`);
 
   console.log(chalk.bold('Step 2: Calculating ranking scores...'));
   const rankings = await calculateRankings(nifty50);
-
   const top15 = rankings.slice(0, 15);
 
-  // Current prices
   console.log(chalk.bold('\nFetching current prices...'));
-  const instruments = top15.map(r => `NSE:${r.symbol}`);
-  const quotes = await getKite().getQuote(instruments);
+  const prices = await getCurrentPrices(top15.map(r => r.symbol));
 
-  const perStock = totalAmount / 15;
-  const today = dayjs().format('YYYY-MM-DD');
-
-  const table = new Table({
-    head: ['Rank', 'Symbol', 'Score', 'Price', 'Allocation', 'Qty', 'Actual Spend'],
-    style: { head: ['cyan'] },
-    colAligns: ['right', 'left', 'right', 'right', 'right', 'right', 'right'],
-  });
-
+  // Determine which stocks can afford a first share
+  let poolBalance = totalAmount;
   const orders = [];
-  let totalActual = 0;
+  const skipped = [];
 
   for (const r of top15) {
-    const price = quotes[`NSE:${r.symbol}`]?.last_price || 0;
-    const qty = price > 0 ? Math.floor(perStock / price) : 0;
-    const actual = qty * price;
-    totalActual += actual;
-
-    table.push([
-      r.rank,
-      r.symbol,
-      pct(r.score),
-      inr(price),
-      inr(perStock),
-      qty > 0 ? qty : chalk.red('0 — price exceeds allocation'),
-      inr(actual),
-    ]);
-
-    if (qty > 0) orders.push({ symbol: r.symbol, qty, price, amount: actual });
+    const price = prices[r.symbol] || 0;
+    if (!price || poolBalance < price) {
+      skipped.push({ symbol: r.symbol, price, poolAt: poolBalance });
+      continue;
+    }
+    orders.push({ symbol: r.symbol, price, rank: r.rank, score: r.score });
+    poolBalance -= price;
   }
 
-  console.log('\n' + chalk.bold('─── INITIAL BUY PLAN ────────────────────────────────'));
+  // Display plan
+  const table = new Table({
+    head: ['Rank', 'Symbol', 'Score', 'Price', 'Qty'],
+    style: { head: ['cyan'] },
+    colAligns: ['right', 'left', 'right', 'right', 'right'],
+  });
+
+  for (const o of orders) {
+    table.push([o.rank, o.symbol, pct(o.score), inrd(o.price), 1]);
+  }
+
+  console.log('\n' + chalk.bold('─── INITIAL BUY PLAN (1 share each) ─────────────────────'));
   console.log(table.toString());
 
-  const skipped = top15.length - orders.length;
-  console.log(`Total capital  : ${inr(totalAmount)}`);
-  console.log(`Actual spend   : ${chalk.cyan(inr(totalActual))} (after floor rounding)`);
-  console.log(`Undeployed     : ${chalk.gray(inr(totalAmount - totalActual))}`);
-  if (skipped > 0) {
-    console.log(chalk.yellow(`\n${skipped} stock(s) skipped — price exceeds per-stock allocation of ${inr(perStock)}`));
+  const totalSpent = orders.reduce((s, o) => s + o.price, 0);
+  console.log(`Total capital    : ${inr(totalAmount)}`);
+  console.log(`Spent on shares  : ${chalk.cyan(inr(totalSpent))}`);
+  console.log(`Saved to pool    : ${chalk.cyan(inr(poolBalance))}  ← used in next rebalance`);
+
+  if (skipped.length) {
+    console.log(chalk.yellow(`\n${skipped.length} stock(s) skipped — price exceeded remaining pool:`));
+    skipped.forEach(s => console.log(chalk.yellow(`  ${s.symbol.padEnd(15)} ₹${s.price.toFixed(2)} > pool ${inr(s.poolAt)}`)));
   }
 
   if (!execute) {
@@ -254,61 +242,23 @@ async function initPortfolio(totalAmount, execute = false) {
     return;
   }
 
-  // Confirmation before real orders
   console.log(chalk.bold.red('\n⚠  This will place REAL orders on your Zerodha account.'));
-  const ans = await confirm(`Place ${orders.length} BUY order(s) totalling ${inr(totalActual)}? (yes/no): `);
+  const ans = await confirm(`Buy 1 share each of ${orders.length} stocks, save ${inr(poolBalance)} to pool? (yes/no): `);
   if (ans !== 'yes') { console.log('Aborted.'); return; }
 
   console.log('');
+
   for (const o of orders) {
-    process.stdout.write(`  Buying ${o.qty.toString().padStart(5)} × ${o.symbol.padEnd(15)}`);
-
-    let orderId = null;
-    try {
-      const res = await getKite().placeOrder('regular', {
-        tradingsymbol: o.symbol,
-        exchange: 'NSE',
-        transaction_type: 'BUY',
-        order_type: 'MARKET',
-        quantity: o.qty,
-        product: 'CNC',
-      });
-      orderId = res.order_id;
-      process.stdout.write(chalk.green(` ✓ order ${orderId}\n`));
-    } catch (err) {
-      process.stdout.write(chalk.red(` ✗ FAILED: ${err.message}\n`));
-      continue;
-    }
-
-    // Record transaction
-    await pool.execute(
-      'INSERT INTO transactions (symbol, trade_date, type, quantity, price, amount, order_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [o.symbol, today, 'BUY', o.qty, o.price, o.amount, orderId]
-    );
-
-    // Upsert holding (handles the rare case of a duplicate)
-    const [existing] = await pool.execute(
-      'SELECT quantity, average_price FROM holdings WHERE symbol = ?',
-      [o.symbol]
-    );
-    if (existing.length) {
-      const h = existing[0];
-      const newQty = h.quantity + o.qty;
-      const newAvg = (h.quantity * h.average_price + o.amount) / newQty;
-      await pool.execute(
-        'UPDATE holdings SET quantity = ?, average_price = ?, updated_at = NOW() WHERE symbol = ?',
-        [newQty, newAvg, o.symbol]
-      );
-    } else {
-      await pool.execute(
-        'INSERT INTO holdings (symbol, quantity, average_price, first_buy_date) VALUES (?, ?, ?, ?)',
-        [o.symbol, o.qty, o.price, today]
-      );
-    }
+    const ok = await executeBuy(o.symbol, 1, o.price, pool);
+    if (!ok) poolBalance += o.price; // return cost to pool so cash isn't lost on failure
   }
 
-  console.log(chalk.green('\nInitialisation complete.'));
-  console.log(`Run ${chalk.cyan('node src/index.js portfolio status')} to verify.\n`);
+  // Save remaining capital to portfolio_pool — rebalance will allocate it properly
+  await setPortfolioPool(pool, poolBalance);
+
+  console.log(chalk.green(`\nInitialisation complete.`));
+  console.log(`Portfolio pool set to ${chalk.cyan(inr(poolBalance))} — run your first rebalance to deploy it.`);
+  console.log(`  node src/index.js rebalance preview --amount <monthly_sip>\n`);
 }
 
 // ─── sync ─────────────────────────────────────────────────────────────────────

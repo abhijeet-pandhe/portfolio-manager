@@ -1,108 +1,81 @@
 const dayjs = require('dayjs');
-const { getKite } = require('../config/kite');
+const { yf: yahooFinance, toYFSymbol } = require('../config/yahoo');
+const { sleep } = require('../helpers');
 
-// Kite API: max 3 req/sec. Sleep between historical data calls.
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+async function fetchReturns(symbol) {
+  const from = dayjs().subtract(13, 'month').toDate();
+  const to = new Date();
 
-let instrumentCache = null;
+  const result = await yahooFinance.chart(toYFSymbol(symbol), {
+    period1: from,
+    period2: to,
+    interval: '1wk',
+  });
 
-async function getInstrumentMap(symbols) {
-  if (!instrumentCache) {
-    process.stdout.write('Loading instrument list from Kite...');
-    const all = await getKite().getInstruments('NSE');
-    instrumentCache = {};
-    for (const inst of all) {
-      if (inst.segment === 'NSE' && inst.instrument_type === 'EQ') {
-        instrumentCache[inst.tradingsymbol] = inst.instrument_token;
-      }
-    }
-    process.stdout.write(' done.\n');
-  }
+  const valid = (result.quotes || []).filter(c => c.adjclose != null);
+  if (valid.length < 4) return { ret12m: 0, ret3m: 0 };
 
-  const map = {};
-  for (const sym of symbols) {
-    if (instrumentCache[sym]) map[sym] = instrumentCache[sym];
-  }
-  return map;
-}
+  const latest = valid[valid.length - 1].adjclose;
 
-async function fetchReturns(token) {
-  const kite = getKite();
-  const to = dayjs().format('YYYY-MM-DD');
-  const from = dayjs().subtract(13, 'month').format('YYYY-MM-DD');
-
-  const candles = await kite.getHistoricalData(token, 'week', from, to);
-  if (!candles || candles.length < 4) return { ret12m: 0, ret3m: 0 };
-
-  const latest = candles[candles.length - 1].close;
-
-  const target12 = dayjs().subtract(12, 'month');
-  const target3 = dayjs().subtract(3, 'month');
-
-  const nearest = (target) => {
-    const ts = target.valueOf();
-    return candles.reduce((best, c) => {
-      const diff = Math.abs(dayjs(c.date).valueOf() - ts);
-      const bestDiff = Math.abs(dayjs(best.date).valueOf() - ts);
-      return diff < bestDiff ? c : best;
-    });
+  const nearest = (targetDayjs) => {
+    const ts = targetDayjs.valueOf();
+    return valid.reduce((best, c) =>
+      Math.abs(dayjs(c.date).valueOf() - ts) < Math.abs(dayjs(best.date).valueOf() - ts) ? c : best
+    );
   };
 
-  const c12 = nearest(target12);
-  const c3 = nearest(target3);
+  const c12 = nearest(dayjs().subtract(12, 'month'));
+  const c3  = nearest(dayjs().subtract(3, 'month'));
 
   return {
-    ret12m: (latest - c12.close) / c12.close,
-    ret3m: (latest - c3.close) / c3.close,
+    ret12m:      (latest - c12.adjclose) / c12.adjclose,
+    ret3m:       (latest - c3.adjclose)  / c3.adjclose,
+    priceLTP:    latest,
+    price12m:    c12.adjclose,
+    price3m:     c3.adjclose,
   };
 }
 
 /**
  * Ranks all Nifty 50 symbols by: 70% × 12M return + 30% × 3M return.
- * Returns array sorted by score descending with rank field.
+ * Returns array sorted by score descending, with rank field.
  */
 async function calculateRankings(symbols) {
-  console.log(`\nFetching instrument tokens for ${symbols.length} symbols...`);
-  const tokenMap = await getInstrumentMap(symbols);
-
   const results = [];
-  const missing = [];
 
   for (let i = 0; i < symbols.length; i++) {
     const symbol = symbols[i];
-    const token = tokenMap[symbol];
-
-    if (!token) {
-      missing.push(symbol);
-      continue;
-    }
-
-    process.stdout.write(`  [${i + 1}/${symbols.length}] ${symbol.padEnd(15)}`);
 
     try {
-      const { ret12m, ret3m } = await fetchReturns(token);
+      const { ret12m, ret3m, priceLTP, price12m, price3m } = await fetchReturns(symbol);
       const score = 0.7 * ret12m + 0.3 * ret3m;
-      results.push({ symbol, ret12m, ret3m, score });
-      process.stdout.write(`12M: ${pct(ret12m)}  3M: ${pct(ret3m)}  Score: ${pct(score)}\n`);
+      results.push({ symbol, ret12m, ret3m, score, priceLTP, price12m, price3m });
+      console.log(formatLine(symbol, priceLTP, price12m, ret12m, price3m, ret3m, score));
     } catch (err) {
-      process.stdout.write(`ERROR: ${err.message}\n`);
+      console.log(`  ${symbol.padEnd(15)} ERROR: ${err.message}`);
       results.push({ symbol, ret12m: 0, ret3m: 0, score: 0 });
     }
 
-    // Rate limit: ~2.5 req/sec
-    await sleep(400);
-  }
-
-  if (missing.length) {
-    console.log(`\nWarning: No token found for: ${missing.join(', ')}`);
+    // Small delay to avoid hammering Yahoo Finance
+    await sleep(200);
   }
 
   results.sort((a, b) => b.score - a.score);
   return results.map((item, idx) => ({ ...item, rank: idx + 1 }));
 }
 
-function pct(n) {
-  return `${(n * 100).toFixed(2)}%`.padStart(9);
+const { inrd } = require('../helpers');
+
+function formatLine(symbol, ltp, p12m, r12m, p3m, r3m, score) {
+  const price = (n) => inrd(n).padStart(12);
+  const ret   = (n) => `(${((n * 100).toFixed(2) + '%').padStart(9)})`;
+  const sc    = (n) => `${((n * 100).toFixed(2) + '%').padStart(9)}`;
+  return (
+    `${symbol.padEnd(15)} LTP: ${price(ltp)}` +
+    `  12M: ${price(p12m)} ${ret(r12m)}` +
+    `  3M: ${price(p3m)} ${ret(r3m)}` +
+    `  Score: ${sc(score)}`
+  );
 }
 
 module.exports = { calculateRankings };
