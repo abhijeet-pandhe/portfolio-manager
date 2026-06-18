@@ -10,7 +10,7 @@ const { getNifty50Symbols } = require('./nse');
 const { calculateRankings } = require('./ranking');
 const { calculateWeights } = require('./allocation');
 const { checkAndApplySplits } = require('./corporateActions');
-const { POOL_KEY, sqlIn, confirm, inr, inrd, pct } = require('../helpers');
+const { POOL_KEY, sleep, sqlIn, confirm, inr, inrd, pct } = require('../helpers');
 
 // ─── Portfolio pool (stored in config table) ──────────────────────────────────
 
@@ -47,6 +47,31 @@ async function getCurrentPrices(symbols) {
 
 // ─── Order helpers ────────────────────────────────────────────────────────────
 
+/**
+ * Fetches the actual weighted-average fill price from Zerodha after an order
+ * executes. Market orders typically fill within 1-2 seconds during market hours.
+ * Returns fallbackPrice if trades are not yet available (e.g., AMO placed after
+ * hours, or a brief delay before the exchange acknowledges the fill).
+ */
+async function getActualFillPrice(orderId, fallbackPrice) {
+  await sleep(1500);
+  try {
+    const trades = await getKite().getOrderTrades(orderId);
+    if (!trades || !trades.length) {
+      process.stdout.write(chalk.yellow(`\n          ⚠ fill not yet confirmed — using indicative price ${inrd(fallbackPrice)}\n`));
+      return fallbackPrice;
+    }
+    const totalQty   = trades.reduce((s, t) => s + t.quantity, 0);
+    const totalValue = trades.reduce((s, t) => s + t.average_price * t.quantity, 0);
+    const fillPrice  = totalQty > 0 ? totalValue / totalQty : fallbackPrice;
+    process.stdout.write(`  actual fill: ${inrd(fillPrice)}\n`);
+    return fillPrice;
+  } catch (err) {
+    process.stdout.write(chalk.yellow(`\n          ⚠ could not fetch fill price (${err.message}) — using indicative price\n`));
+    return fallbackPrice;
+  }
+}
+
 async function executeSell(symbol, qty, price, pool) {
   const today = dayjs().format('YYYY-MM-DD');
   process.stdout.write(`  SELL  ${qty} × ${symbol.padEnd(12)} @ ${inrd(price)}...`);
@@ -56,7 +81,7 @@ async function executeSell(symbol, qty, price, pool) {
     const res = await getKite().placeOrder('regular', {
       tradingsymbol: symbol, exchange: 'NSE',
       transaction_type: 'SELL', order_type: 'MARKET',
-      quantity: qty, product: 'CNC',
+      quantity: qty, product: 'CNC', market_protection: 0.5
     });
     orderId = res.order_id;
     process.stdout.write(chalk.green(` ✓ order ${orderId}\n`));
@@ -65,10 +90,12 @@ async function executeSell(symbol, qty, price, pool) {
     return false;
   }
 
-  const amount = qty * price;
+  const fillPrice = await getActualFillPrice(orderId, price);
+  const amount    = qty * fillPrice;
+
   await pool.execute(
     'INSERT INTO transactions (symbol,trade_date,type,quantity,price,amount,order_id) VALUES (?,?,?,?,?,?,?)',
-    [symbol, today, 'SELL', qty, price, amount, orderId]
+    [symbol, today, 'SELL', qty, fillPrice, amount, orderId]
   );
   await pool.execute('DELETE FROM holdings WHERE symbol=?', [symbol]);
   return true;
@@ -76,7 +103,6 @@ async function executeSell(symbol, qty, price, pool) {
 
 async function executeBuy(symbol, qty, price, pool) {
   const today = dayjs().format('YYYY-MM-DD');
-  const amount = qty * price;
   process.stdout.write(`  BUY   ${qty} × ${symbol.padEnd(12)} @ ${inrd(price)}...`);
 
   let orderId = null;
@@ -84,7 +110,7 @@ async function executeBuy(symbol, qty, price, pool) {
     const res = await getKite().placeOrder('regular', {
       tradingsymbol: symbol, exchange: 'NSE',
       transaction_type: 'BUY', order_type: 'MARKET',
-      quantity: qty, product: 'CNC',
+      quantity: qty, product: 'CNC', market_protection: 0.5
     });
     orderId = res.order_id;
     process.stdout.write(chalk.green(` ✓ order ${orderId}\n`));
@@ -93,9 +119,12 @@ async function executeBuy(symbol, qty, price, pool) {
     return false;
   }
 
+  const fillPrice = await getActualFillPrice(orderId, price);
+  const amount    = qty * fillPrice;
+
   await pool.execute(
     'INSERT INTO transactions (symbol,trade_date,type,quantity,price,amount,order_id) VALUES (?,?,?,?,?,?,?)',
-    [symbol, today, 'BUY', qty, price, amount, orderId]
+    [symbol, today, 'BUY', qty, fillPrice, amount, orderId]
   );
 
   const [[existing]] = await pool.execute(
@@ -111,7 +140,7 @@ async function executeBuy(symbol, qty, price, pool) {
   } else {
     await pool.execute(
       'INSERT INTO holdings (symbol,quantity,average_price,first_buy_date,cash_pool) VALUES (?,?,?,?,0)',
-      [symbol, qty, price, today]
+      [symbol, qty, fillPrice, today]
     );
   }
   return true;
