@@ -126,6 +126,14 @@ portfolioCmd
     requireAuth(showSnapshots).catch(handleError);
   });
 
+portfolioCmd
+  .command('details')
+  .description('Portfolio summary, holdings table, and key insights')
+  .action(() => {
+    const { showDetails } = require('./commands/portfolio');
+    requireAuth(showDetails).catch(handleError);
+  });
+
 // ─── rebalance ────────────────────────────────────────────────────────────────
 
 const rebalanceCmd = program

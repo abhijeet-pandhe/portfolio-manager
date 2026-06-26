@@ -79,6 +79,13 @@ Executes the rebalance — sells exits, buys new entries, and distributes the mo
 ## Utilities
 
 ```bash
+node src/index.js portfolio details
+```
+Concise portfolio dashboard: summary (value, invested, P&L, return, XIRR, cash pools), holdings table sorted by market value, and key insights (best/worst performer, largest holding, win rate). XIRR is shown per stock only for positions held ≥ 12 months.
+
+---
+
+```bash
 node src/index.js portfolio rankings
 ```
 Shows the full Nifty 50 ranking table with each stock's 12M return, 3M return, and composite score. Highlights which held stocks are at risk of exit.

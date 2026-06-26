@@ -1,0 +1,24 @@
+# Git metadata
+.git/
+.git/**
+
+# Personal files
+README_PERSONAL.md
+notes/
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# CI/CD
+.github/
+.gitlab/
+
+# Company docs
+internal-docs/
+architecture/
+
+# SSH keys
+.ssh/

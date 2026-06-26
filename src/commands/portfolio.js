@@ -8,6 +8,7 @@ const { calculateWeights } = require('../services/allocation');
 const { getNifty50Symbols } = require('../services/nse');
 const { calculateRankings } = require('../services/ranking');
 const { getPortfolioPool, getCurrentPrices, setPortfolioPool, executeBuy } = require('../services/rebalance');
+const { xirr } = require('../services/xirr');
 const { confirm, inr, inrd, pct } = require('../helpers');
 
 // ─── status ──────────────────────────────────────────────────────────────────
@@ -404,4 +405,153 @@ async function showSnapshots() {
   }
 }
 
-module.exports = { initPortfolio, showStatus, showRankings, showTransactions, syncFromZerodha, addHolding, setDate, showSnapshots };
+// ─── details ──────────────────────────────────────────────────────────────────
+
+async function showDetails() {
+  const pool = getPool();
+  const [holdings] = await pool.execute('SELECT * FROM holdings WHERE quantity > 0');
+
+  if (!holdings.length) {
+    console.log('No holdings found.');
+    return;
+  }
+
+  const symbols = holdings.map(h => h.symbol);
+  const prices = await getCurrentPrices(symbols);
+
+  let totalValue = 0;
+  let totalInvested = 0;
+  let totalCashPool = 0;
+
+  const rows = holdings.map(h => {
+    const ltp = prices[h.symbol] || 0;
+    const value = ltp * h.quantity;
+    const invested = h.average_price * h.quantity;
+    const gainLoss = value - invested;
+    const ret = invested > 0 ? (value - invested) / invested : 0;
+    const cashPool = parseFloat(h.cash_pool || 0);
+    totalValue += value;
+    totalInvested += invested;
+    totalCashPool += cashPool;
+    return { symbol: h.symbol, qty: h.quantity, avgPrice: h.average_price,
+             firstBuyDate: h.first_buy_date, ltp, value, invested, gainLoss, ret, cashPool };
+  });
+
+  rows.sort((a, b) => b.value - a.value);
+
+  // Single query for all transactions — used for both portfolio XIRR and per-stock XIRR
+  const [allTxns] = await pool.execute(
+    'SELECT symbol, trade_date, type, quantity, price FROM transactions ORDER BY trade_date ASC'
+  );
+
+  // Portfolio-level XIRR
+  let portfolioXIRR = null;
+  if (allTxns.length) {
+    const pfCashflows = allTxns.map(tx => ({
+      amount: tx.type === 'BUY' ? -(tx.quantity * tx.price) : (tx.quantity * tx.price),
+      date: new Date(tx.trade_date),
+    }));
+    for (const r of rows) {
+      pfCashflows.push({ amount: r.value, date: new Date() });
+    }
+    const result = xirr(pfCashflows);
+    portfolioXIRR = isFinite(result) ? result : null;
+  }
+
+  // Per-stock XIRR (only for holdings >= 12 months, filter from already-fetched allTxns)
+  const xirrMap = {};
+  const needXIRR = rows.filter(r => dayjs().diff(dayjs(r.firstBuyDate), 'month') >= 12);
+  if (needXIRR.length) {
+    const needSet = new Set(needXIRR.map(r => r.symbol));
+    const txnBySymbol = {};
+    for (const tx of allTxns) {
+      if (!needSet.has(tx.symbol)) continue;
+      if (!txnBySymbol[tx.symbol]) txnBySymbol[tx.symbol] = [];
+      txnBySymbol[tx.symbol].push(tx);
+    }
+    for (const r of needXIRR) {
+      const symTxns = txnBySymbol[r.symbol] || [];
+      if (!symTxns.length) continue;
+      const cashflows = symTxns.map(tx => ({
+        amount: tx.type === 'BUY' ? -(tx.quantity * tx.price) : (tx.quantity * tx.price),
+        date: new Date(tx.trade_date),
+      }));
+      cashflows.push({ amount: r.value, date: new Date() });
+      const result = xirr(cashflows);
+      xirrMap[r.symbol] = isFinite(result) ? result : null;
+    }
+  }
+
+  const portfolioPool = await getPortfolioPool(pool);
+  const portfolioReturn = totalInvested > 0 ? (totalValue - totalInvested) / totalInvested : 0;
+  const unrealizedPnL = totalValue - totalInvested;
+
+  const signedPct = (n) => {
+    const s = (n >= 0 ? '+' : '') + (n * 100).toFixed(2) + '%';
+    return n >= 0 ? chalk.green(s) : chalk.red(s);
+  };
+  const signedInr = (n) => {
+    const abs = Math.round(Math.abs(n)).toLocaleString('en-IN');
+    const s = (n >= 0 ? '+₹' : '-₹') + abs;
+    return n >= 0 ? chalk.green(s) : chalk.red(s);
+  };
+
+  // ─── 1. Portfolio Summary ────────────────────────────────────────────────────
+  console.log('');
+  console.log(`Portfolio Value      : ${chalk.cyan(inr(totalValue))}`);
+  console.log(`Invested Amount      : ${inr(totalInvested)}`);
+  console.log(`Unrealized P&L       : ${signedInr(unrealizedPnL)} (${signedPct(portfolioReturn)})`);
+  console.log('');
+  console.log(`Portfolio Return     : ${signedPct(portfolioReturn)}`);
+  console.log(`Portfolio XIRR       : ${portfolioXIRR !== null ? signedPct(portfolioXIRR) : chalk.gray('-')}`);
+  console.log('');
+  console.log(`Cash Available       : ${inr(portfolioPool)}`);
+  console.log(`Stock Pool Amount    : ${inr(totalCashPool)}`);
+  console.log(`Stocks Held          : ${rows.length}`);
+
+  // ─── 2. Holdings Table ────────────────────────────────────────────────────────
+  const table = new Table({
+    head: ['Symbol', 'Qty', 'Avg Price', 'CMP', 'Value', 'Alloc %', 'Gain/Loss', 'Return', 'XIRR'],
+    style: { head: ['cyan'] },
+    colAligns: ['left', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'right'],
+  });
+
+  for (const r of rows) {
+    const allocPct = totalValue > 0 ? (r.value / totalValue) * 100 : 0;
+    const xirrVal = r.symbol in xirrMap ? xirrMap[r.symbol] : undefined;
+    const xirrStr = xirrVal !== undefined && xirrVal !== null
+      ? signedPct(xirrVal)
+      : chalk.gray('-');
+
+    table.push([
+      r.symbol,
+      r.qty,
+      inrd(r.avgPrice),
+      inrd(r.ltp),
+      inr(r.value),
+      allocPct.toFixed(1) + '%',
+      signedInr(r.gainLoss),
+      signedPct(r.ret),
+      xirrStr,
+    ]);
+  }
+
+  console.log('\n' + table.toString());
+
+  // ─── 3. Key Insights ─────────────────────────────────────────────────────────
+  const best = rows.reduce((a, b) => (a.ret > b.ret ? a : b));
+  const worst = rows.reduce((a, b) => (a.ret < b.ret ? a : b));
+  const largest = rows[0]; // already sorted by value desc
+  const profitable = rows.filter(r => r.ret > 0).length;
+  const largestAllocPct = totalValue > 0 ? (largest.value / totalValue) * 100 : 0;
+
+  console.log('');
+  console.log(`Best Performer       : ${chalk.green(best.symbol)} (${signedPct(best.ret)})`);
+  console.log(`Worst Performer      : ${chalk.red(worst.symbol)} (${signedPct(worst.ret)})`);
+  console.log('');
+  console.log(`Largest Holding      : ${chalk.cyan(largest.symbol)} (${largestAllocPct.toFixed(1)}%)`);
+  console.log(`Portfolio Win Rate   : ${profitable} / ${rows.length} (${((profitable / rows.length) * 100).toFixed(1)}%)`);
+  console.log('');
+}
+
+module.exports = { initPortfolio, showStatus, showRankings, showTransactions, syncFromZerodha, addHolding, setDate, showSnapshots, showDetails };
