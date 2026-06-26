@@ -81,7 +81,8 @@ async function executeSell(symbol, qty, price, pool) {
     const res = await getKite().placeOrder('regular', {
       tradingsymbol: symbol, exchange: 'NSE',
       transaction_type: 'SELL', order_type: 'MARKET',
-      quantity: qty, product: 'CNC', market_protection: 0.5
+      quantity: qty, product: 'CNC', market_protection: 0.5,
+      tag: 'MY_STRATEGY'
     });
     orderId = res.order_id;
     process.stdout.write(chalk.green(` ✓ order ${orderId}\n`));
@@ -110,7 +111,8 @@ async function executeBuy(symbol, qty, price, pool) {
     const res = await getKite().placeOrder('regular', {
       tradingsymbol: symbol, exchange: 'NSE',
       transaction_type: 'BUY', order_type: 'MARKET',
-      quantity: qty, product: 'CNC', market_protection: 0.5
+      quantity: qty, product: 'CNC', market_protection: 0.5,
+      tag: 'MY_STRATEGY'
     });
     orderId = res.order_id;
     process.stdout.write(chalk.green(` ✓ order ${orderId}\n`));
