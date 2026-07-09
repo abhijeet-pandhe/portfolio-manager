@@ -1,30 +1,6 @@
 const dayjs = require('dayjs');
 const { yf: yahooFinance, toYFSymbol } = require('../config/yahoo');
-const { sleep } = require('../helpers');
-
-// Yahoo occasionally returns an HTML error page (e.g. a 502) instead of JSON.
-// Surface a short reason instead of dumping the whole page to the console.
-function cleanErrorMessage(err) {
-  const msg = err && err.message ? String(err.message) : String(err);
-  if (/<!DOCTYPE html>|<html/i.test(msg)) {
-    const statusMatch = msg.match(/status code\s*:\s*(\d+)/i);
-    return statusMatch ? `Yahoo Finance unavailable (HTTP ${statusMatch[1]})` : 'Yahoo Finance unavailable (bad response)';
-  }
-  return msg;
-}
-
-async function fetchReturnsWithRetry(symbol, retries = 2, delayMs = 1000) {
-  let lastErr;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await fetchReturns(symbol);
-    } catch (err) {
-      lastErr = err;
-      if (attempt < retries) await sleep(delayMs * (attempt + 1));
-    }
-  }
-  throw lastErr;
-}
+const { sleep, inrd, withRetry, cleanYahooError } = require('../helpers');
 
 async function fetchReturns(symbol) {
   const from = dayjs().subtract(13, 'month').toDate();
@@ -71,12 +47,12 @@ async function calculateRankings(symbols) {
     const symbol = symbols[i];
 
     try {
-      const { ret12m, ret3m, priceLTP, price12m, price3m } = await fetchReturnsWithRetry(symbol);
+      const { ret12m, ret3m, priceLTP, price12m, price3m } = await withRetry(() => fetchReturns(symbol));
       const score = 0.7 * ret12m + 0.3 * ret3m;
       results.push({ symbol, ret12m, ret3m, score, priceLTP, price12m, price3m });
       console.log(formatLine(symbol, priceLTP, price12m, ret12m, price3m, ret3m, score));
     } catch (err) {
-      console.log(`  ${symbol.padEnd(15)} ERROR: ${cleanErrorMessage(err)}`);
+      console.log(`  ${symbol.padEnd(15)} ERROR: ${cleanYahooError(err)}`);
       results.push({ symbol, ret12m: 0, ret3m: 0, score: 0, failed: true });
     }
 
@@ -87,8 +63,6 @@ async function calculateRankings(symbols) {
   results.sort((a, b) => b.score - a.score);
   return results.map((item, idx) => ({ ...item, rank: idx + 1 }));
 }
-
-const { inrd } = require('../helpers');
 
 function formatLine(symbol, ltp, p12m, r12m, p3m, r3m, score) {
   const price = (n) => inrd(n).padStart(12);

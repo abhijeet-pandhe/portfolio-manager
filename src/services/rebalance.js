@@ -10,7 +10,7 @@ const { getNifty50Symbols } = require('./nse');
 const { calculateRankings } = require('./ranking');
 const { calculateWeights } = require('./allocation');
 const { checkAndApplySplits } = require('./corporateActions');
-const { POOL_KEY, sleep, sqlIn, confirm, inr, inrd, pct } = require('../helpers');
+const { POOL_KEY, sleep, sqlIn, confirm, inr, inrd, pct, withRetry, cleanYahooError } = require('../helpers');
 
 // ─── Portfolio pool (stored in config table) ──────────────────────────────────
 
@@ -38,7 +38,12 @@ async function getHeldSymbols() {
 
 async function getCurrentPrices(symbols) {
   if (!symbols.length) return {};
-  const results = await yahooFinance.quote(symbols.map(toYFSymbol));
+  let results;
+  try {
+    results = await withRetry(() => yahooFinance.quote(symbols.map(toYFSymbol)));
+  } catch (err) {
+    throw new Error(`Failed to fetch current prices: ${cleanYahooError(err)}`);
+  }
   const arr = Array.isArray(results) ? results : [results];
   const prices = {};
   for (const r of arr) prices[r.symbol.replace('.NS', '')] = r.regularMarketPrice;
@@ -205,9 +210,9 @@ function printAllocationTable(buyPlan, poolToDistribute, firstShareCosts = {}) {
   const allocationSpent = buyPlan.reduce((s, b) => s + b.spent, 0);
   const totalSpent      = allocationSpent + firstShareTotal;
   const totalRemaining  = buyPlan.reduce((s, b) => s + b.remaining, 0);
-  console.log(`  Allocation spent     : ${inr(allocationSpent)}`);
-  console.log(`  Total spent          : ${inr(totalSpent)}`);
-  console.log(`  Carried to next month: ${chalk.gray(inr(totalRemaining))}`);
+  console.log(`  Allocation spent      : ${chalk.gray(inr(allocationSpent))}`);
+  console.log(`  Carried to next month : ${chalk.gray(inr(totalRemaining))}`);
+  console.log(`  Total spent           : ${chalk.cyan(inr(totalSpent))}`);
 }
 
 async function saveSnapshot(rankings, toSell, toBuy, weights, pool) {

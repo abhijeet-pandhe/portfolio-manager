@@ -3,27 +3,7 @@ const chalk = require('chalk');
 const { yf: yahooFinance, toYFSymbol } = require('../config/yahoo');
 
 const { getPool } = require('../config/database');
-const { sleep } = require('../helpers');
-
-// ─── Config helpers ───────────────────────────────────────────────────────────
-
-async function getSplitsLastChecked() {
-  const pool = getPool();
-  const [rows] = await pool.execute(
-    "SELECT `value` FROM config WHERE `key` = 'splits_last_checked'"
-  );
-  return rows.length ? dayjs(rows[0].value) : null;
-}
-
-async function setSplitsLastChecked() {
-  const pool = getPool();
-  const today = dayjs().format('YYYY-MM-DD');
-  await pool.execute(
-    "INSERT INTO config (`key`, `value`) VALUES ('splits_last_checked', ?)" +
-    " ON DUPLICATE KEY UPDATE `value` = ?, updated_at = NOW()",
-    [today, today]
-  );
-}
+const { sleep, withRetry, cleanYahooError } = require('../helpers');
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -31,52 +11,52 @@ async function setSplitsLastChecked() {
  * For each held symbol, fetches splits from Yahoo Finance and adjusts
  * quantity and average_price in the holdings table.
  *
- * First run (no splits_last_checked in config): checks from each stock's
+ * The check window is tracked per symbol via holdings.last_split_check,
+ * so one symbol's Yahoo Finance failure doesn't block the checkpoint from
+ * advancing for the others.
+ *
+ * No last_split_check yet (new holding): checks from the stock's
  * first_buy_date so any historical splits since purchase are caught.
  *
- * Subsequent runs: checks only from the last checked date so nothing is
- * applied twice.
+ * Subsequent runs: checks only from last_split_check so nothing is applied
+ * twice.
  *
  * Note: Yahoo Finance reports Indian bonus issues as splits (same mechanics),
  * so both are handled automatically.
  */
 async function checkAndApplySplits(heldSymbols) {
   const pool = getPool();
-  const lastChecked = await getSplitsLastChecked();
 
   console.log(chalk.bold('Checking for splits / bonus issues...'));
-  if (lastChecked) {
-    console.log(`  Period : ${lastChecked.format('DD-MMM-YYYY')} → today`);
-  } else {
-    console.log('  First run — checking from each stock\'s first buy date.');
-  }
 
   let adjustedCount = 0;
 
   for (const symbol of heldSymbols) {
     const [[h]] = await pool.execute(
-      'SELECT quantity, average_price, first_buy_date FROM holdings WHERE symbol = ?',
+      'SELECT quantity, average_price, first_buy_date, last_split_check FROM holdings WHERE symbol = ?',
       [symbol]
     );
     if (!h) continue;
 
-    // On first run, go back to first_buy_date.
-    // On subsequent runs, use lastChecked (but never before first_buy_date).
+    // No checkpoint yet, go back to first_buy_date.
+    // Otherwise use last_split_check (but never before first_buy_date).
     const firstBuy = dayjs(h.first_buy_date);
-    const since = !lastChecked
+    const since = !h.last_split_check
       ? firstBuy
-      : lastChecked.isBefore(firstBuy) ? firstBuy : lastChecked;
+      : dayjs(h.last_split_check).isBefore(firstBuy) ? firstBuy : dayjs(h.last_split_check);
+    const today = dayjs().format('YYYY-MM-DD');
 
     try {
-      const result = await yahooFinance.chart(toYFSymbol(symbol), {
+      const result = await withRetry(() => yahooFinance.chart(toYFSymbol(symbol), {
         period1: since.toDate(),
         period2: new Date(),
         interval: '1wk',
         events: 'splits',
-      });
+      }));
 
       const splits = result.events?.splits;
       if (!splits || Object.keys(splits).length === 0) {
+        await pool.execute('UPDATE holdings SET last_split_check = ? WHERE symbol = ?', [today, symbol]);
         await sleep(120);
         continue;
       }
@@ -96,8 +76,8 @@ async function checkAndApplySplits(heldSymbols) {
       const newAvg = parseFloat((h.average_price / ratio).toFixed(4));
 
       await pool.execute(
-        'UPDATE holdings SET quantity = ?, average_price = ?, updated_at = NOW() WHERE symbol = ?',
-        [newQty, newAvg, symbol]
+        'UPDATE holdings SET quantity = ?, average_price = ?, last_split_check = ?, updated_at = NOW() WHERE symbol = ?',
+        [newQty, newAvg, today, symbol]
       );
 
       console.log(chalk.green(
@@ -106,7 +86,9 @@ async function checkAndApplySplits(heldSymbols) {
       ));
       adjustedCount++;
     } catch (err) {
-      console.log(chalk.gray(`  Warning: ${symbol} — ${err.message}`));
+      // last_split_check is left untouched for this symbol — its missed
+      // window will be retried in full next run instead of being skipped.
+      console.log(chalk.yellow(`  Warning: ${symbol} — ${cleanYahooError(err)} — will re-check next run`));
     }
 
     await sleep(120);
@@ -114,9 +96,6 @@ async function checkAndApplySplits(heldSymbols) {
 
   if (adjustedCount === 0) console.log('  No splits detected.');
   console.log('');
-
-  // Always update the checked date so next run only looks at the new window
-  await setSplitsLastChecked();
 
   return adjustedCount;
 }

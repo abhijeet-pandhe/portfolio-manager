@@ -32,4 +32,29 @@ function pct(n) {
   return n >= 0 ? chalk.green(s) : chalk.red(s);
 }
 
-module.exports = { POOL_KEY, sleep, sqlIn, confirm, inr, inrd, pct };
+// Retries a flaky call (e.g. Yahoo Finance) a few times with backoff before giving up.
+async function withRetry(fn, { retries = 2, delayMs = 1000 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) await sleep(delayMs * (attempt + 1));
+    }
+  }
+  throw lastErr;
+}
+
+// Yahoo occasionally returns an HTML error page (e.g. a 502) instead of JSON.
+// Collapse it into a short, readable reason instead of dumping the whole page.
+function cleanYahooError(err) {
+  const msg = err && err.message ? String(err.message) : String(err);
+  if (/<!DOCTYPE html>|<html/i.test(msg)) {
+    const statusMatch = msg.match(/status code\s*:\s*(\d+)/i);
+    return statusMatch ? `Yahoo Finance unavailable (HTTP ${statusMatch[1]})` : 'Yahoo Finance unavailable (bad response)';
+  }
+  return msg;
+}
+
+module.exports = { POOL_KEY, sleep, sqlIn, confirm, inr, inrd, pct, withRetry, cleanYahooError };
