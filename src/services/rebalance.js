@@ -174,7 +174,7 @@ function printEntries(toBuy, skipped, firstShareCosts, prices) {
   }
 }
 
-function printAllocationTable(buyPlan, poolToDistribute) {
+function printAllocationTable(buyPlan, poolToDistribute, firstShareCosts = {}) {
   console.log(chalk.bold('\n─── ALLOCATION FROM POOL ────────────────────────'));
   console.log(`  Pool to distribute: ${chalk.cyan(inr(poolToDistribute))}\n`);
 
@@ -201,8 +201,11 @@ function printAllocationTable(buyPlan, poolToDistribute) {
   }
   console.log(table.toString());
 
-  const totalSpent     = buyPlan.reduce((s, b) => s + b.spent, 0);
-  const totalRemaining = buyPlan.reduce((s, b) => s + b.remaining, 0);
+  const firstShareTotal = Object.values(firstShareCosts).reduce((s, c) => s + c, 0);
+  const allocationSpent = buyPlan.reduce((s, b) => s + b.spent, 0);
+  const totalSpent      = allocationSpent + firstShareTotal;
+  const totalRemaining  = buyPlan.reduce((s, b) => s + b.remaining, 0);
+  console.log(`  Allocation spent     : ${inr(allocationSpent)}`);
   console.log(`  Total spent          : ${inr(totalSpent)}`);
   console.log(`  Carried to next month: ${chalk.gray(inr(totalRemaining))}`);
 }
@@ -349,7 +352,7 @@ async function runRebalance(sip, dryRun = true) {
   const finalHoldings = [...heldAfterSell, ...toBuy];
   const buyPlan = await buildBuyPlan(finalHoldings, heldAfterSell, toBuy, prices, workingPool, pool);
 
-  printAllocationTable(buyPlan, workingPool);
+  printAllocationTable(buyPlan, workingPool, firstShareCosts);
 
   if (dryRun) {
     console.log(chalk.yellow('\nDry run complete. No orders placed.'));
