@@ -518,7 +518,7 @@ async function showDetails() {
 
   // ─── 2. Holdings Table ────────────────────────────────────────────────────────
   const table = new Table({
-    head: ['Symbol', 'Qty', 'Avg Price', 'CMP', 'Value', 'Alloc %', 'Gain/Loss', 'Return', 'XIRR'],
+    head: ['Symbol', 'Qty', 'Avg Price', 'LTP', 'Value', 'Alloc %', 'Gain/Loss', 'Return', 'XIRR'],
     style: { head: ['cyan'] },
     colAligns: ['left', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'right'],
   });

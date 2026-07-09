@@ -55,7 +55,7 @@ Sort holdings by **Market Value (descending)**.
 
 ### Columns
 
-| Symbol | Qty | Avg Price | CMP | Value | Allocation % | Gain/Loss | Return | XIRR |
+| Symbol | Qty | Avg Price | LTP | Value | Allocation % | Gain/Loss | Return | XIRR |
 | ------ | --- | --------- | --- | ----- | ------------ | --------- | ------ | ---- |
 
 Example:

@@ -179,9 +179,9 @@ function printAllocationTable(buyPlan, poolToDistribute) {
   console.log(`  Pool to distribute: ${chalk.cyan(inr(poolToDistribute))}\n`);
 
   const table = new Table({
-    head: ['Symbol', 'Score', 'Weight', '+Pool', 'Cur Pool', 'Total Pool', 'Buy', 'Spent', 'Remaining'],
+    head: ['Symbol', 'Score', 'Weight', '+Pool', 'Cur Pool', 'Total Pool', 'LTP', 'Buy', 'Spent', 'Remaining'],
     style: { head: ['cyan'] },
-    colAligns: ['left','right','right','right','right','right','right','right','right'],
+    colAligns: ['left','right','right','right','right','right','right','right','right','right'],
   });
 
   for (const b of buyPlan) {
@@ -193,6 +193,7 @@ function printAllocationTable(buyPlan, poolToDistribute) {
       inr(b.poolAddition),
       inr(b.existingPool),
       inr(b.totalPool),
+      inr(b.price),
       b.qty > 0 ? b.qty : chalk.gray('0'),
       inr(b.spent),
       inr(b.remaining),
