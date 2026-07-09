@@ -90,15 +90,17 @@ async function showRankings() {
   const rankings = await calculateRankings(symbols);
 
   const table = new Table({
-    head: ['Rank', 'Symbol', '12M Return', '3M Return', 'Score', 'Status'],
+    head: ['Rank', 'Symbol', 'LTP', '12M Return', '3M Return', 'Score', 'Status'],
     style: { head: ['cyan'] },
-    colAligns: ['right', 'left', 'right', 'right', 'right', 'left'],
+    colAligns: ['right', 'left', 'right', 'right', 'right', 'right', 'left'],
   });
 
   for (const r of rankings) {
     const isHeld = held.includes(r.symbol);
     let status = '';
-    if (isHeld) {
+    if (r.failed) {
+      status = chalk.yellow('DATA ERROR');
+    } else if (isHeld) {
       status = r.rank <= 20 ? chalk.green('HOLD') : chalk.red('SELL');
     } else if (r.rank <= 12) {
       status = chalk.yellow('BUY ELIGIBLE');
@@ -107,6 +109,7 @@ async function showRankings() {
     table.push([
       r.rank,
       r.symbol + (isHeld ? chalk.cyan(' *') : ''),
+      inr(r.priceLTP),
       pct(r.ret12m),
       pct(r.ret3m),
       pct(r.score),
@@ -485,6 +488,9 @@ async function showDetails() {
   const portfolioPool = await getPortfolioPool(pool);
   const portfolioReturn = totalInvested > 0 ? (totalValue - totalInvested) / totalInvested : 0;
   const unrealizedPnL = totalValue - totalInvested;
+  const lastInvestmentDate = allTxns.length
+    ? allTxns.reduce((latest, tx) => (tx.trade_date > latest ? tx.trade_date : latest), allTxns[0].trade_date)
+    : null;
 
   const signedPct = (n) => {
     const s = (n >= 0 ? '+' : '') + (n * 100).toFixed(2) + '%';
@@ -508,6 +514,7 @@ async function showDetails() {
   console.log(`Cash Available       : ${inr(portfolioPool)}`);
   console.log(`Stock Pool Amount    : ${inr(totalCashPool)}`);
   console.log(`Stocks Held          : ${rows.length}`);
+  console.log(`Last Invested        : ${lastInvestmentDate ? dayjs(lastInvestmentDate).format('DD MMM YYYY') : chalk.gray('-')}`);
 
   // ─── 2. Holdings Table ────────────────────────────────────────────────────────
   const table = new Table({

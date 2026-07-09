@@ -215,7 +215,8 @@ function printRankingsTable(rankings, heldSymbols) {
   for (const r of rankings.slice(0, 25)) {
     const isHeld = heldSymbols.includes(r.symbol);
     let status = '';
-    if (isHeld)         status = r.rank <= 20 ? chalk.green('HOLD') : chalk.red('SELL');
+    if (r.failed)         status = chalk.yellow('DATA ERROR');
+    else if (isHeld)      status = r.rank <= 20 ? chalk.green('HOLD') : chalk.red('SELL');
     else if (r.rank<=12) status = chalk.yellow('BUY ELIGIBLE');
     table.push([r.rank, r.symbol + (isHeld ? ' *' : ''), pct(r.ret12m), pct(r.ret3m), pct(r.score), status]);
   }
@@ -305,6 +306,7 @@ async function runRebalance(sip, dryRun = true) {
   const toSell = heldBefore.filter(sym => {
     if (!nifty50.includes(sym)) { console.log(`  ${chalk.red('EXIT')} ${sym} — removed from Nifty 50`); return true; }
     const r = rankings.find(x => x.symbol === sym);
+    if (r && r.failed) { console.log(`  ${chalk.yellow('SKIP')} ${sym} — ranking data unavailable this run, holding until next rebalance`); return false; }
     if (r && r.rank > 20) { console.log(`  ${chalk.red('EXIT')} ${sym} — rank ${r.rank} > 20`); return true; }
     return false;
   });

@@ -2,6 +2,30 @@ const dayjs = require('dayjs');
 const { yf: yahooFinance, toYFSymbol } = require('../config/yahoo');
 const { sleep } = require('../helpers');
 
+// Yahoo occasionally returns an HTML error page (e.g. a 502) instead of JSON.
+// Surface a short reason instead of dumping the whole page to the console.
+function cleanErrorMessage(err) {
+  const msg = err && err.message ? String(err.message) : String(err);
+  if (/<!DOCTYPE html>|<html/i.test(msg)) {
+    const statusMatch = msg.match(/status code\s*:\s*(\d+)/i);
+    return statusMatch ? `Yahoo Finance unavailable (HTTP ${statusMatch[1]})` : 'Yahoo Finance unavailable (bad response)';
+  }
+  return msg;
+}
+
+async function fetchReturnsWithRetry(symbol, retries = 2, delayMs = 1000) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetchReturns(symbol);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) await sleep(delayMs * (attempt + 1));
+    }
+  }
+  throw lastErr;
+}
+
 async function fetchReturns(symbol) {
   const from = dayjs().subtract(13, 'month').toDate();
   const to = new Date();
@@ -47,13 +71,13 @@ async function calculateRankings(symbols) {
     const symbol = symbols[i];
 
     try {
-      const { ret12m, ret3m, priceLTP, price12m, price3m } = await fetchReturns(symbol);
+      const { ret12m, ret3m, priceLTP, price12m, price3m } = await fetchReturnsWithRetry(symbol);
       const score = 0.7 * ret12m + 0.3 * ret3m;
       results.push({ symbol, ret12m, ret3m, score, priceLTP, price12m, price3m });
       console.log(formatLine(symbol, priceLTP, price12m, ret12m, price3m, ret3m, score));
     } catch (err) {
-      console.log(`  ${symbol.padEnd(15)} ERROR: ${err.message}`);
-      results.push({ symbol, ret12m: 0, ret3m: 0, score: 0 });
+      console.log(`  ${symbol.padEnd(15)} ERROR: ${cleanErrorMessage(err)}`);
+      results.push({ symbol, ret12m: 0, ret3m: 0, score: 0, failed: true });
     }
 
     // Small delay to avoid hammering Yahoo Finance
