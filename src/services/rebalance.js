@@ -206,24 +206,6 @@ function printAllocationTable(buyPlan, poolToDistribute) {
   console.log(`  Carried to next month: ${chalk.gray(inr(totalRemaining))}`);
 }
 
-function printRankingsTable(rankings, heldSymbols) {
-  const table = new Table({
-    head: ['Rank', 'Symbol', '12M Return', '3M Return', 'Score', 'Status'],
-    style: { head: ['cyan'] },
-    colAligns: ['right','left','right','right','right','left'],
-  });
-  for (const r of rankings.slice(0, 25)) {
-    const isHeld = heldSymbols.includes(r.symbol);
-    let status = '';
-    if (r.failed)         status = chalk.yellow('DATA ERROR');
-    else if (isHeld)      status = r.rank <= 20 ? chalk.green('HOLD') : chalk.red('SELL');
-    else if (r.rank<=12) status = chalk.yellow('BUY ELIGIBLE');
-    table.push([r.rank, r.symbol + (isHeld ? ' *' : ''), pct(r.ret12m), pct(r.ret3m), pct(r.score), status]);
-  }
-  console.log('\n' + table.toString());
-  console.log(chalk.gray('* = currently held | top 25 shown'));
-}
-
 async function saveSnapshot(rankings, toSell, toBuy, weights, pool) {
   const today = dayjs().format('YYYY-MM-DD');
   const scoreMap = Object.fromEntries(weights.map(w => [w.symbol, w.rawScore]));
@@ -367,7 +349,6 @@ async function runRebalance(sip, dryRun = true) {
   const buyPlan = await buildBuyPlan(finalHoldings, heldAfterSell, toBuy, prices, workingPool, pool);
 
   printAllocationTable(buyPlan, workingPool);
-  printRankingsTable(rankings, heldBefore);
 
   if (dryRun) {
     console.log(chalk.yellow('\nDry run complete. No orders placed.'));
