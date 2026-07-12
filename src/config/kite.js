@@ -12,4 +12,14 @@ function getKite() {
   return kite;
 }
 
-module.exports = { getKite };
+async function assertValidSession() {
+  try {
+    await getKite().getProfile();
+  } catch (err) {
+    throw new Error(
+      `Zerodha session check failed (${err.message})\nRe-authenticate: node src/index.js auth login`
+    );
+  }
+}
+
+module.exports = { getKite, assertValidSession };

@@ -3,7 +3,7 @@ const chalk = require('chalk');
 const Table = require('cli-table3');
 
 const { getPool } = require('../config/database');
-const { getKite } = require('../config/kite');
+const { getKite, assertValidSession } = require('../config/kite');
 const { calculateWeights } = require('../services/allocation');
 const { getNifty50Symbols } = require('../services/nse');
 const { calculateRankings } = require('../services/ranking');
@@ -245,6 +245,9 @@ async function initPortfolio(totalAmount, execute = false) {
     console.log(`To execute: node src/index.js portfolio init --amount ${totalAmount} --execute`);
     return;
   }
+
+  // Verify the Kite session is actually live before touching real orders
+  await assertValidSession();
 
   console.log(chalk.bold.red('\n⚠  This will place REAL orders on your Zerodha account.'));
   const ans = await confirm(`Buy 1 share each of ${orders.length} stocks, save ${inr(poolBalance)} to pool? (yes/no): `);

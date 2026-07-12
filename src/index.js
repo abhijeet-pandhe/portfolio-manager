@@ -1,10 +1,11 @@
 require('dotenv').config();
 const { program } = require('commander');
+const chalk = require('chalk');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function handleError(err) {
-  console.error('\nError:', err.message || err);
+  console.error(chalk.red(`\nError: ${err.message || err}`));
   if (process.env.DEBUG === '1') console.error(err.stack);
   process.exit(1);
 }

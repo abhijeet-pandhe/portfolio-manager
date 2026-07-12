@@ -5,7 +5,7 @@ const Table = require('cli-table3');
 const { yf: yahooFinance, toYFSymbol } = require('../config/yahoo');
 
 const { getPool } = require('../config/database');
-const { getKite } = require('../config/kite');
+const { getKite, assertValidSession } = require('../config/kite');
 const { getNifty50Symbols } = require('./nse');
 const { calculateRankings } = require('./ranking');
 const { calculateWeights } = require('./allocation');
@@ -364,6 +364,9 @@ async function runRebalance(sip, dryRun = true) {
     console.log(`Execute: node src/index.js rebalance run --amount ${sip}`);
     return;
   }
+
+  // ── Verify the Kite session is actually live before touching real orders ──
+  await assertValidSession();
 
   // ── Confirm ──
   console.log(chalk.bold.red('\n⚠  This will place REAL orders on your Zerodha account.'));
