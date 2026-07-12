@@ -1,9 +1,6 @@
 const readline = require('readline');
 const chalk = require('chalk');
 
-// Shared config key for portfolio cash pool
-const POOL_KEY = 'portfolio_pool_balance';
-
 // Rate-limiting delay
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -57,4 +54,4 @@ function cleanYahooError(err) {
   return msg;
 }
 
-module.exports = { POOL_KEY, sleep, sqlIn, confirm, inr, inrd, pct, withRetry, cleanYahooError };
+module.exports = { sleep, sqlIn, confirm, inr, inrd, pct, withRetry, cleanYahooError };

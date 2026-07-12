@@ -7,7 +7,7 @@ const { getKite, assertValidSession } = require('../config/kite');
 const { calculateWeights } = require('../services/allocation');
 const { getNifty50Symbols } = require('../services/nse');
 const { calculateRankings } = require('../services/ranking');
-const { getPortfolioPool, getCurrentPrices, setPortfolioPool, executeBuy } = require('../services/rebalance');
+const { getCurrentPrices, executeBuy } = require('../services/rebalance');
 const { xirr } = require('../services/xirr');
 const { confirm, inr, inrd, pct } = require('../helpers');
 
@@ -69,13 +69,11 @@ async function showStatus() {
 
   console.log('\n' + table.toString());
 
-  const portfolioPool = await getPortfolioPool(pool);
   const totalReturn = (totalValue - totalCost) / totalCost;
   console.log(`\nTotal Invested   : ${inr(totalCost)}`);
   console.log(`Total Value      : ${inr(totalValue)}`);
   console.log(`Total Return     : ${pct(totalReturn)}  (${inr(totalValue - totalCost)})`);
   console.log(`\nStock pools      : ${chalk.gray(inr(totalCashPool))}  (leftover cash per position)`);
-  console.log(`Portfolio pool   : ${chalk.gray(inr(portfolioPool))}  (central cash, normally ₹0 between rebalances)`);
 }
 
 // ─── rankings ────────────────────────────────────────────────────────────────
@@ -233,7 +231,6 @@ async function initPortfolio(totalAmount, execute = false) {
   const totalSpent = orders.reduce((s, o) => s + o.price, 0);
   console.log(`Total capital    : ${inr(totalAmount)}`);
   console.log(`Spent on shares  : ${chalk.cyan(inr(totalSpent))}`);
-  console.log(`Saved to pool    : ${chalk.cyan(inr(poolBalance))}  ← used in next rebalance`);
 
   if (skipped.length) {
     console.log(chalk.yellow(`\n${skipped.length} stock(s) skipped — price exceeded remaining pool:`));
@@ -250,21 +247,16 @@ async function initPortfolio(totalAmount, execute = false) {
   await assertValidSession();
 
   console.log(chalk.bold.red('\n⚠  This will place REAL orders on your Zerodha account.'));
-  const ans = await confirm(`Buy 1 share each of ${orders.length} stocks, save ${inr(poolBalance)} to pool? (yes/no): `);
+  const ans = await confirm(`Buy 1 share each of ${orders.length} stocks? (yes/no): `);
   if (ans !== 'yes') { console.log('Aborted.'); return; }
 
   console.log('');
 
   for (const o of orders) {
-    const ok = await executeBuy(o.symbol, 1, o.price, pool);
-    if (!ok) poolBalance += o.price; // return cost to pool so cash isn't lost on failure
+    await executeBuy(o.symbol, 1, o.price, pool);
   }
 
-  // Save remaining capital to portfolio_pool — rebalance will allocate it properly
-  await setPortfolioPool(pool, poolBalance);
-
   console.log(chalk.green(`\nInitialisation complete.`));
-  console.log(`Portfolio pool set to ${chalk.cyan(inr(poolBalance))} — run your first rebalance to deploy it.`);
   console.log(`  node src/index.js rebalance preview --amount <monthly_sip>\n`);
 }
 
@@ -488,7 +480,6 @@ async function showDetails() {
     }
   }
 
-  const portfolioPool = await getPortfolioPool(pool);
   const portfolioReturn = totalInvested > 0 ? (totalValue - totalInvested) / totalInvested : 0;
   const unrealizedPnL = totalValue - totalInvested;
   const lastInvestmentDate = allTxns.length
@@ -514,7 +505,6 @@ async function showDetails() {
   console.log(`Portfolio Return     : ${signedPct(portfolioReturn)}`);
   console.log(`Portfolio XIRR       : ${portfolioXIRR !== null ? signedPct(portfolioXIRR) : chalk.gray('-')}`);
   console.log('');
-  console.log(`Cash Available       : ${inr(portfolioPool)}`);
   console.log(`Stock Pool Amount    : ${inr(totalCashPool)}`);
   console.log(`Stocks Held          : ${rows.length}`);
   console.log(`Last Invested        : ${lastInvestmentDate ? dayjs(lastInvestmentDate).format('DD MMM YYYY') : chalk.gray('-')}`);

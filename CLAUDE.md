@@ -67,11 +67,11 @@ MySQL         ──→  all services   (holdings, transactions, snapshots, conf
 
 | File | Role |
 |---|---|
-| `src/helpers.js` | Shared utilities: `POOL_KEY`, `sleep`, `sqlIn`, `confirm`, `inr`, `inrd`, `pct` |
+| `src/helpers.js` | Shared utilities: `sleep`, `sqlIn`, `confirm`, `inr`, `inrd`, `pct` |
 | `src/config/yahoo.js` | Yahoo Finance singleton + `toYFSymbol()` (adds `.NS` suffix) |
 | `src/config/kite.js` | KiteConnect singleton |
 | `src/config/database.js` | mysql2 connection pool |
-| `src/services/rebalance.js` | Full monthly cycle orchestration; exports `executeBuy`, `getCurrentPrices`, `getPortfolioPool`, `setPortfolioPool` |
+| `src/services/rebalance.js` | Full monthly cycle orchestration; exports `executeBuy`, `getCurrentPrices` |
 | `src/services/allocation.js` | `calculateWeights` (batched, 2 DB queries); `getPositionScore` (single-symbol, used by status display) |
 | `src/services/ranking.js` | `calculateRankings` — 50 sequential Yahoo Finance calls, 200ms sleep between each (~10s total) |
 | `src/services/corporateActions.js` | `checkAndApplySplits` — called at start of every rebalance |
@@ -87,7 +87,6 @@ MySQL         ──→  all services   (holdings, transactions, snapshots, conf
 ### Shared constants and helpers
 
 Always import from `src/helpers.js`, never redefine locally:
-- `POOL_KEY` — the config table key for the central cash pool
 - `sleep(ms)` — rate-limit delay between Yahoo Finance calls
 - `sqlIn(arr)` — builds MySQL `IN` clause placeholder string
 - `toYFSymbol(sym)` — lives in `src/config/yahoo.js`; appends `.NS` for Yahoo Finance

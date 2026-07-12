@@ -25,7 +25,6 @@ Contains:
 
 * Monthly SIP contributions
 * Proceeds from stock sales
-* Unused cash from previous cycles
 
 Example:
 
@@ -378,8 +377,6 @@ SBIN = ₹150
 ₹0
 ```
 
-All cash is tracked and no money is lost.
-
 ---
 
 # Key Principles
@@ -392,5 +389,4 @@ All cash is tracked and no money is lost.
 6. Stock pools accumulate leftover cash.
 7. Portfolio pool manages all incoming and outgoing cash.
 8. No fractional shares are used.
-9. No cash is discarded.
-10. Better-performing positions automatically receive more future capital.
+9. Better-performing positions automatically receive more future capital.

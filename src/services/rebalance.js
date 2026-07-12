@@ -10,24 +10,7 @@ const { getNifty50Symbols } = require('./nse');
 const { calculateRankings } = require('./ranking');
 const { calculateWeights } = require('./allocation');
 const { checkAndApplySplits } = require('./corporateActions');
-const { POOL_KEY, sleep, sqlIn, confirm, inr, inrd, pct, withRetry, cleanYahooError } = require('../helpers');
-
-// ─── Portfolio pool (stored in config table) ──────────────────────────────────
-
-async function getPortfolioPool(pool) {
-  const [rows] = await pool.execute(
-    'SELECT `value` FROM config WHERE `key` = ?', [POOL_KEY]
-  );
-  return rows.length ? parseFloat(rows[0].value) : 0;
-}
-
-async function setPortfolioPool(pool, amount) {
-  const v = Math.max(0, amount).toFixed(2);
-  await pool.execute(
-    'INSERT INTO config (`key`,`value`) VALUES (?,?) ON DUPLICATE KEY UPDATE `value`=?, updated_at=NOW()',
-    [POOL_KEY, v, v]
-  );
-}
+const { sleep, sqlIn, confirm, inr, inrd, pct, withRetry, cleanYahooError } = require('../helpers');
 
 // ─── DB helpers ───────────────────────────────────────────────────────────────
 
@@ -155,9 +138,8 @@ async function executeBuy(symbol, qty, price, pool) {
 
 // ─── Display ──────────────────────────────────────────────────────────────────
 
-function printPoolSummary(prev, sellProceeds, recoveredPools, sip, working) {
+function printPoolSummary(sellProceeds, recoveredPools, sip, working) {
   console.log(chalk.bold('\n─── PORTFOLIO POOL ──────────────────────────────'));
-  console.log(`  Previous balance       : ${inr(prev).padStart(12)}`);
   console.log(`  Sell proceeds          : ${inr(sellProceeds).padStart(12)}`);
   console.log(`  Recovered stock pools  : ${inr(recoveredPools).padStart(12)}`);
   console.log(`  Monthly SIP            : ${inr(sip).padStart(12)}`);
@@ -320,10 +302,9 @@ async function runRebalance(sip, dryRun = true) {
   const totalRecoveredPools = sellData.reduce((s, d) => s + d.cashPool, 0);
 
   // ── Step 2 (strategy): add SIP ──
-  const prevPool   = await getPortfolioPool(pool);
-  let workingPool  = prevPool + totalSellProceeds + totalRecoveredPools + sip;
+  let workingPool  = totalSellProceeds + totalRecoveredPools + sip;
 
-  printPoolSummary(prevPool, totalSellProceeds, totalRecoveredPools, sip, workingPool);
+  printPoolSummary(totalSellProceeds, totalRecoveredPools, sip, workingPool);
 
   // ── Step 3 (strategy): new entries — mandatory first share ──
   const heldAfterSell = heldBefore.filter(s => !toSell.includes(s));
@@ -382,9 +363,7 @@ async function runRebalance(sip, dryRun = true) {
   }
 
   // ── Update portfolio pool ──
-  const actualPool = prevPool + actualProceeds + actualRecovered + sip;
-  let remaining = actualPool;
-  await setPortfolioPool(pool, remaining);
+  let remaining = actualProceeds + actualRecovered + sip;
 
   // ── Execute first share buys ──
   console.log(chalk.bold('\nBuying first shares for new entries...'));
@@ -394,15 +373,13 @@ async function runRebalance(sip, dryRun = true) {
       console.log(chalk.red(`  SKIP ${sym} — pool (${inr(remaining)}) < price (${inr(price)})`));
       continue;
     }
-    const ok = await executeBuy(sym, 1, price, pool);
-    if (ok) remaining -= price;
+    await executeBuy(sym, 1, price, pool);
+    remaining -= price;
   }
 
   // ── Distribute pool to stock pools and buy ──
   // Reuse weights from the preview buyPlan — same proportions, applied to actual pool.
   console.log(chalk.bold('\nDistributing pool and buying shares...'));
-
-  let strandedCash = 0; // cash that couldn't be saved because the holding row doesn't exist
 
   // Batch-fetch current cash_pool balances for all symbols in one query
   const symbols = buyPlan.map(b => b.symbol);
@@ -422,26 +399,19 @@ async function runRebalance(sip, dryRun = true) {
 
     if (qty > 0) {
       const ok = await executeBuy(b.symbol, qty, price, pool);
-      if (ok) leftover = totalPool - qty * price;
+      if (ok) leftover -= - qty * price;
     }
 
     // UPDATE only works if the holding row exists. If the first-share buy also failed,
-    // there is no row — save the entire allocation back to the portfolio pool for next month.
+    // there is no row — drop the leftover cash
     const [result] = await pool.execute(
       'UPDATE holdings SET cash_pool=?, updated_at=NOW() WHERE symbol=?',
       [leftover.toFixed(2), b.symbol]
     );
-    if (result.affectedRows === 0) {
-      strandedCash += totalPool;
-      console.log(chalk.yellow(`  WARNING: no holding row for ${b.symbol} — ${inr(totalPool)} carried to next month's pool`));
-    }
   }
 
-  // Preserve stranded cash so it is not lost; zeroes on a clean run.
-  await setPortfolioPool(pool, strandedCash);
-
   await saveSnapshot(rankings, toSell, toBuy, buyPlan, pool);
-  console.log(chalk.green('\nRebalance complete. Portfolio pool zeroed. Stock pools updated.'));
+  console.log(chalk.green('\nRebalance complete. Stock pools updated.'));
 }
 
-module.exports = { runRebalance, getCurrentPrices, getPortfolioPool, setPortfolioPool, executeBuy };
+module.exports = { runRebalance, getCurrentPrices, executeBuy };

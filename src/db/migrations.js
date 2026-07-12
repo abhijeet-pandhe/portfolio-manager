@@ -1,5 +1,4 @@
 const { getPool } = require('../config/database');
-const { POOL_KEY } = require('../helpers');
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS config (
@@ -53,10 +52,6 @@ async function migrate() {
   for (const sql of TABLES) {
     await pool.execute(sql);
   }
-  await pool.execute(
-    'INSERT IGNORE INTO config (`key`, `value`) VALUES (?, ?)',
-    [POOL_KEY, '0.00']
-  );
   console.log('Database migrations complete.');
 }
 
