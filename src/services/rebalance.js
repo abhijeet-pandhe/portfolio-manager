@@ -418,9 +418,12 @@ async function runRebalance(sip, dryRun = true) {
     const totalPool = curPool + addition;
     const price     = prices[b.symbol] || 0;
     const qty       = price > 0 ? Math.floor(totalPool / price) : 0;
-    const leftover  = totalPool - qty * price;
+    let leftover    = totalPool;
 
-    if (qty > 0) await executeBuy(b.symbol, qty, price, pool);
+    if (qty > 0) {
+      const ok = await executeBuy(b.symbol, qty, price, pool);
+      if (ok) leftover = totalPool - qty * price;
+    }
 
     // UPDATE only works if the holding row exists. If the first-share buy also failed,
     // there is no row — save the entire allocation back to the portfolio pool for next month.
