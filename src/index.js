@@ -93,19 +93,6 @@ portfolioCmd
   });
 
 portfolioCmd
-  .command('status')
-  .description('Current holdings with P&L and allocation scores')
-  .action(async () => {
-    try {
-      const { showStatus } = require('./commands/portfolio');
-      await requireAuth();
-      await showStatus();
-    } catch (err) {
-      handleError(err);
-    }
-  });
-
-portfolioCmd
   .command('rankings')
   .description('Full Nifty 50 ranking table')
   .action(async () => {

@@ -80,42 +80,4 @@ async function calculateWeights(symbols, currentPrices) {
   }));
 }
 
-// Kept for portfolio status display (single-symbol score lookup)
-async function getPositionScore(symbol, currentPrice) {
-  const pool = getPool();
-  const [holdings] = await pool.execute(
-    'SELECT quantity, average_price, first_buy_date FROM holdings WHERE symbol = ?',
-    [symbol]
-  );
-  if (!holdings.length || holdings[0].quantity === 0) return 0;
-
-  const h = holdings[0];
-  const monthsHeld = dayjs().diff(dayjs(h.first_buy_date), 'month');
-  const fallback = (currentPrice - h.average_price) / h.average_price;
-
-  if (monthsHeld < 12) return fallback;
-
-  // BUYs since the last SELL (or all BUYs if never sold)
-  const [buys] = await pool.execute(
-    `SELECT trade_date, quantity, price FROM transactions
-     WHERE symbol = ? AND type = 'BUY'
-       AND trade_date > COALESCE(
-         (SELECT MAX(trade_date) FROM transactions WHERE symbol = ? AND type = 'SELL'),
-         '1900-01-01'
-       )
-     ORDER BY trade_date ASC`,
-    [symbol, symbol]
-  );
-  if (!buys.length) return fallback;
-
-  const cashflows = buys.map(tx => ({
-    amount: -(tx.quantity * tx.price),
-    date: new Date(tx.trade_date),
-  }));
-  cashflows.push({ amount: h.quantity * currentPrice, date: new Date() });
-
-  const result = xirr(cashflows);
-  return isFinite(result) ? result : fallback;
-}
-
-module.exports = { calculateWeights, getPositionScore };
+module.exports = { calculateWeights };

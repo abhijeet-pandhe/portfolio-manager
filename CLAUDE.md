@@ -22,7 +22,7 @@ node src/index.js portfolio init --amount 500000            # preview
 node src/index.js portfolio init --amount 500000 --execute  # place real orders
 
 # Daily
-node src/index.js portfolio status        # holdings + P&L + pool balances
+node src/index.js portfolio details        # holdings + P&L + pool balances
 node src/index.js portfolio rankings      # full Nifty 50 ranking table
 
 # Monthly rebalance (1st trading day)
@@ -72,7 +72,7 @@ MySQL         ──→  all services   (holdings, transactions, snapshots, conf
 | `src/config/kite.js` | KiteConnect singleton |
 | `src/config/database.js` | mysql2 connection pool |
 | `src/services/rebalance.js` | Full monthly cycle orchestration; exports `executeBuy`, `getCurrentPrices` |
-| `src/services/allocation.js` | `calculateWeights` (batched, 2 DB queries); `getPositionScore` (single-symbol, used by status display) |
+| `src/services/allocation.js` | `calculateWeights` (batched, 2 DB queries) |
 | `src/services/ranking.js` | `calculateRankings` — 50 sequential Yahoo Finance calls, 200ms sleep between each (~10s total) |
 | `src/services/corporateActions.js` | `checkAndApplySplits` — called at start of every rebalance |
 | `src/db/migrations.js` | Creates tables and seeds `portfolio_pool_balance = 0` |

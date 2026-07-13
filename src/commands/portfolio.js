@@ -11,71 +11,6 @@ const { getCurrentPrices, executeBuy } = require('../services/rebalance');
 const { xirr } = require('../services/xirr');
 const { confirm, inr, inrd, pct } = require('../helpers');
 
-// ─── status ──────────────────────────────────────────────────────────────────
-
-async function showStatus() {
-  const pool = getPool();
-  const [holdings] = await pool.execute(
-    'SELECT * FROM holdings WHERE quantity > 0 ORDER BY symbol'
-  );
-
-  if (!holdings.length) {
-    console.log('No holdings. Use `portfolio sync` or `portfolio add` to get started.');
-    return;
-  }
-
-  const symbols = holdings.map(h => h.symbol);
-  const prices  = await getCurrentPrices(symbols);
-
-  // Batch-compute all allocation scores in 2 DB queries (replaces N×2 sequential calls)
-  const scoreWeights = await calculateWeights(symbols, prices);
-  const scoreMap = Object.fromEntries(scoreWeights.map(w => [w.symbol, w.rawScore]));
-
-  const table = new Table({
-    head: ['Symbol', 'Qty', 'Avg Cost', 'LTP', 'Value', 'Abs Return', 'Held', 'Alloc Score', 'Cash Pool'],
-    style: { head: ['cyan'] },
-    colAligns: ['left', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'right'],
-  });
-
-  let totalCost = 0;
-  let totalValue = 0;
-  let totalCashPool = 0;
-
-  for (const h of holdings) {
-    const ltp = prices[h.symbol] || 0;
-    const value = ltp * h.quantity;
-    const cost = h.average_price * h.quantity;
-    const absReturn = (ltp - h.average_price) / h.average_price;
-    const days = dayjs().diff(dayjs(h.first_buy_date), 'day');
-    const score = scoreMap[h.symbol] ?? 0;
-    const cashPool = parseFloat(h.cash_pool || 0);
-
-    totalCost += cost;
-    totalValue += value;
-    totalCashPool += cashPool;
-
-    table.push([
-      h.symbol,
-      h.quantity,
-      inrd(h.average_price),
-      inrd(ltp),
-      inr(value),
-      pct(absReturn),
-      `${days}d`,
-      pct(score),
-      cashPool > 0 ? chalk.gray(`₹${cashPool.toFixed(2)}`) : chalk.gray('—'),
-    ]);
-  }
-
-  console.log('\n' + table.toString());
-
-  const totalReturn = (totalValue - totalCost) / totalCost;
-  console.log(`\nTotal Invested   : ${inr(totalCost)}`);
-  console.log(`Total Value      : ${inr(totalValue)}`);
-  console.log(`Total Return     : ${pct(totalReturn)}  (${inr(totalValue - totalCost)})`);
-  console.log(`\nStock pools      : ${chalk.gray(inr(totalCashPool))}  (leftover cash per position)`);
-}
-
 // ─── rankings ────────────────────────────────────────────────────────────────
 
 async function showRankings() {
@@ -573,4 +508,4 @@ async function showDetails() {
   console.log('');
 }
 
-module.exports = { initPortfolio, showStatus, showRankings, showTransactions, syncFromZerodha, addHolding, setDate, showSnapshots, showDetails };
+module.exports = { initPortfolio, showRankings, showTransactions, syncFromZerodha, addHolding, setDate, showSnapshots, showDetails };
