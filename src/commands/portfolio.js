@@ -405,6 +405,24 @@ async function showSnapshots() {
 
 // ─── details ──────────────────────────────────────────────────────────────────
 
+function formatHeldDuration(firstBuyDate) {
+  const start = dayjs(firstBuyDate);
+  const now = dayjs();
+
+  const years = now.diff(start, 'year');
+  const afterYears = start.add(years, 'year');
+  const months = now.diff(afterYears, 'month');
+  const afterMonths = afterYears.add(months, 'month');
+  const days = now.diff(afterMonths, 'day');
+
+  const parts = [];
+  if (years > 0) parts.push(`${years}y`);
+  if (months > 0) parts.push(`${months}m`);
+  if (days > 0) parts.push(`${days}d`);
+
+  return parts.length ? parts.join(' ') : '0d';
+}
+
 async function showDetails() {
   const pool = getPool();
   const [holdings] = await pool.execute('SELECT * FROM holdings WHERE quantity > 0');
@@ -511,9 +529,9 @@ async function showDetails() {
 
   // ─── 2. Holdings Table ────────────────────────────────────────────────────────
   const table = new Table({
-    head: ['Symbol', 'Qty', 'Avg Price', 'LTP', 'Value', 'Alloc %', 'Gain/Loss', 'Return', 'XIRR'],
+    head: ['Symbol', 'Qty', 'Avg Price', 'LTP', 'Value', 'Alloc %', 'Held', 'Gain/Loss', 'Return', 'XIRR'],
     style: { head: ['cyan'] },
-    colAligns: ['left', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'right'],
+    colAligns: ['left', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'right'],
   });
 
   for (const r of rows) {
@@ -530,6 +548,7 @@ async function showDetails() {
       inrd(r.ltp),
       inr(r.value),
       allocPct.toFixed(1) + '%',
+      formatHeldDuration(r.firstBuyDate),
       signedInr(r.gainLoss),
       signedPct(r.ret),
       xirrStr,

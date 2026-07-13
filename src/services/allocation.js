@@ -21,23 +21,26 @@ async function calculateWeights(symbols, currentPrices) {
   const holdingMap = Object.fromEntries(holdings.map(h => [h.symbol, h]));
 
   // Identify symbols that need transaction history (held >= 12 months)
-  const needTxns = [];
-  for (const h of holdings) {
-    if (h.quantity > 0 && dayjs().diff(dayjs(h.first_buy_date), 'month') >= 12) {
-      needTxns.push(h.symbol);
-    }
-  }
+  const needTxns = holdings
+    .filter(h => h.quantity > 0 && dayjs().diff(dayjs(h.first_buy_date), 'month') >= 12)
+    .map(h => h.symbol);
 
-  // Batch-fetch transactions for all long-held positions in one query
-  const txnMap = {};
+  // Batch-fetch each symbol's BUYs since its last SELL (or all BUYs if never sold)
+  const buyMap = {};
   if (needTxns.length) {
-    const [txns] = await pool.execute(
-      `SELECT symbol, trade_date, type, quantity, price FROM transactions WHERE symbol IN (${sqlIn(needTxns)}) ORDER BY symbol, trade_date ASC`,
+    const [buys] = await pool.execute(
+      `SELECT symbol, trade_date, quantity, price FROM transactions t
+       WHERE symbol IN (${sqlIn(needTxns)}) AND type = 'BUY'
+         AND trade_date > COALESCE(
+           (SELECT MAX(trade_date) FROM transactions WHERE symbol = t.symbol AND type = 'SELL'),
+           '1900-01-01'
+         )
+       ORDER BY symbol, trade_date ASC`,
       needTxns
     );
-    for (const tx of txns) {
-      if (!txnMap[tx.symbol]) txnMap[tx.symbol] = [];
-      txnMap[tx.symbol].push(tx);
+    for (const tx of buys) {
+      if (!buyMap[tx.symbol]) buyMap[tx.symbol] = [];
+      buyMap[tx.symbol].push(tx);
     }
   }
 
@@ -49,26 +52,22 @@ async function calculateWeights(symbols, currentPrices) {
     if (!price || !h || h.quantity === 0) return { symbol, rawScore: 0 };
 
     const monthsHeld = dayjs().diff(dayjs(h.first_buy_date), 'month');
+    const fallback = (price - h.average_price) / h.average_price;
 
-    if (monthsHeld < 12) {
-      return { symbol, rawScore: (price - h.average_price) / h.average_price };
-    }
+    if (monthsHeld < 12) return { symbol, rawScore: fallback };
 
-    const txns = txnMap[symbol];
-    if (!txns || !txns.length) {
-      return { symbol, rawScore: (price - h.average_price) / h.average_price };
-    }
+    const buys = buyMap[symbol];
+    if (!buys || !buys.length) return { symbol, rawScore: fallback };
 
-    const cashflows = txns.map(tx => ({
-      amount: tx.type === 'BUY' ? -(tx.quantity * tx.price) : (tx.quantity * tx.price),
+    const cashflows = buys.map(tx => ({
+      amount: -(tx.quantity * tx.price),
       date: new Date(tx.trade_date),
     }));
     cashflows.push({ amount: h.quantity * price, date: new Date() });
 
     const xirrResult = xirr(cashflows);
     // xirr can return NaN if Newton-Raphson diverges; fall back to absolute return
-    const rawScore = isFinite(xirrResult) ? xirrResult : (price - h.average_price) / h.average_price;
-    return { symbol, rawScore };
+    return { symbol, rawScore: isFinite(xirrResult) ? xirrResult : fallback };
   });
 
   const minScore = Math.min(...scores.map(s => s.rawScore));
@@ -92,23 +91,31 @@ async function getPositionScore(symbol, currentPrice) {
 
   const h = holdings[0];
   const monthsHeld = dayjs().diff(dayjs(h.first_buy_date), 'month');
+  const fallback = (currentPrice - h.average_price) / h.average_price;
 
-  if (monthsHeld < 12) return (currentPrice - h.average_price) / h.average_price;
+  if (monthsHeld < 12) return fallback;
 
-  const [txns] = await pool.execute(
-    'SELECT trade_date, type, quantity, price FROM transactions WHERE symbol = ? ORDER BY trade_date ASC',
-    [symbol]
+  // BUYs since the last SELL (or all BUYs if never sold)
+  const [buys] = await pool.execute(
+    `SELECT trade_date, quantity, price FROM transactions
+     WHERE symbol = ? AND type = 'BUY'
+       AND trade_date > COALESCE(
+         (SELECT MAX(trade_date) FROM transactions WHERE symbol = ? AND type = 'SELL'),
+         '1900-01-01'
+       )
+     ORDER BY trade_date ASC`,
+    [symbol, symbol]
   );
-  if (!txns.length) return (currentPrice - h.average_price) / h.average_price;
+  if (!buys.length) return fallback;
 
-  const cashflows = txns.map(tx => ({
-    amount: tx.type === 'BUY' ? -(tx.quantity * tx.price) : (tx.quantity * tx.price),
+  const cashflows = buys.map(tx => ({
+    amount: -(tx.quantity * tx.price),
     date: new Date(tx.trade_date),
   }));
   cashflows.push({ amount: h.quantity * currentPrice, date: new Date() });
 
   const result = xirr(cashflows);
-  return isFinite(result) ? result : (currentPrice - h.average_price) / h.average_price;
+  return isFinite(result) ? result : fallback;
 }
 
 module.exports = { calculateWeights, getPositionScore };

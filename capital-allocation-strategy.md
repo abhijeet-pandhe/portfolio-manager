@@ -162,45 +162,91 @@ This prevents partially initialized positions.
 
 ## Step 4 - Calculate Position Performance Score
 
-Every held stock receives a performance score.
+Every currently held stock receives a performance score.
 
-### Holding Period < 12 Months
+The score is calculated **only for the current holding period**.
 
-Use Absolute Return.
+A holding period starts when a stock is bought after entering the portfolio and ends when the entire position is sold.
 
-Formula:
+Since the strategy never performs partial sells, every complete sell marks the end of the current holding period.
+
+When the stock is purchased again in the future, a completely new holding period begins.
+
+### Determining the Current Holding Period
+
+For each stock:
+
+1. Find the most recent **SELL** transaction.
+2. Fetch all **BUY** transactions that occurred **after** that SELL transaction.
+3. If the stock has never been sold, fetch all BUY transactions since the first purchase.
+4. Ignore every BUY transaction that occurred before the most recent SELL transaction.
+
+These BUY transactions represent the current holding period and are the only transactions used for calculating the performance score.
+
+---
+
+### Example
+
+#### Holding Period 1
+
+| Month | Action                 |
+| ----- | ---------------------- |
+| 1     | BUY                    |
+| 2     | BUY                    |
+| 3     | BUY                    |
+| 4     | BUY                    |
+| 5     | SELL (Entire Position) |
+
+Holding Period 1 ends.
+
+These transactions will never be used again for future score calculations.
+
+---
+
+#### Holding Period 2
+
+| Month | Action |
+| ----- | ------ |
+| 10    | BUY    |
+| 11    | BUY    |
+| 12    | BUY    |
+
+When calculating the performance score in Month 12:
+
+Only these BUY transactions are considered:
+
+* Month 10 BUY
+* Month 11 BUY
+* Month 12 BUY
+
+The BUY transactions from Months 1–4 are ignored because they belong to a previous holding period.
+
+---
+
+### Performance Metric
+
+#### Holding Period < 12 Months
+
+Use **Absolute Return**.
 
 ```text
-(Current Value - Total Invested)
-/ Total Invested
-```
-
-Example:
-
-```text
-Invested = ₹10,000
-Current Value = ₹11,500
-
-Score = 15%
+(Current Market Value - Total Amount Invested During Current Holding Period)
+/
+Total Amount Invested During Current Holding Period
 ```
 
 ---
 
-### Holding Period >= 12 Months
+#### Holding Period ≥ 12 Months
 
-Use Position XIRR.
+Use **Position XIRR**.
 
 Position XIRR is calculated using:
 
-* All buy transactions
-* All sell transactions
-* Current market value as terminal cashflow
+* All BUY transactions from the current holding period.
+* Current market value as the terminal cash flow.
 
-Example:
-
-```text
-Score = 22%
-```
+Since the strategy always exits a position completely before re-entering it, transactions from previous holding periods are never included in the Position XIRR calculation.
 
 ---
 
