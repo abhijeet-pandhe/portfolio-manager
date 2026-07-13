@@ -22,4 +22,14 @@ async function assertValidSession() {
   }
 }
 
-module.exports = { getKite, assertValidSession };
+async function assertSufficientFunds(requiredAmount) {
+  const equity = await getKite().getMargins('equity');
+  const availableFunds = equity.net;
+  if (availableFunds < requiredAmount) {
+    throw new Error(
+      `Insufficient funds in Kite account: available ₹${availableFunds}, required ₹${requiredAmount}`
+    );
+  }
+}
+
+module.exports = { getKite, assertValidSession, assertSufficientFunds };
