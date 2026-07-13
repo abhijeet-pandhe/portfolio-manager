@@ -1,3 +1,4 @@
+const axios = require('axios');
 const { KiteConnect } = require('kiteconnect');
 
 let kite;
@@ -32,4 +33,18 @@ async function assertSufficientFunds(requiredAmount) {
   }
 }
 
-module.exports = { getKite, assertValidSession, assertSufficientFunds };
+async function assertAllowedIp() {
+  const allowed = (process.env.KITE_ALLOWED_IPS || '').split(',');
+  let publicIp;
+  try {
+    const response = await axios.get('https://ifconfig.me/ip', { timeout: 5000 });
+    publicIp = String(response.data).trim();
+  } catch (err) {
+    throw new Error(`Could not determine public egress IP (${err.message}) — refusing to place orders.`);
+  }
+  if (!allowed.includes(publicIp)) {
+    throw new Error(`Current public IP ${publicIp} is not whitelisted for Kite trading (allowed: ${allowed.join(', ')}).`);
+  }
+}
+
+module.exports = { getKite, assertValidSession, assertSufficientFunds, assertAllowedIp };

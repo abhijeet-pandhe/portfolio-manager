@@ -3,7 +3,7 @@ const chalk = require('chalk');
 const Table = require('cli-table3');
 
 const { getPool } = require('../config/database');
-const { getKite, assertValidSession } = require('../config/kite');
+const { getKite, assertValidSession, assertSufficientFunds, assertAllowedIp } = require('../config/kite');
 const { calculateWeights } = require('../services/allocation');
 const { getNifty50Symbols } = require('../services/nse');
 const { calculateRankings } = require('../services/ranking');
@@ -178,12 +178,18 @@ async function initPortfolio(totalAmount, execute = false) {
     return;
   }
 
-  // Verify the Kite session is actually live before touching real orders
-  await assertValidSession();
-
   console.log(chalk.bold.red('\n⚠  This will place REAL orders on your Zerodha account.'));
   const ans = await confirm(`Buy 1 share each of ${orders.length} stocks? (yes/no): `);
   if (ans !== 'yes') { console.log('Aborted.'); return; }
+
+  // Verify the Kite session is actually live before touching real orders
+  await assertValidSession();
+
+  // Verify our egress IP is whitelisted before touching real orders
+  await assertAllowedIp();
+
+  // ── Verify enough funds are available to execute the order ──
+  await assertSufficientFunds(totalAmount);
 
   console.log('');
 

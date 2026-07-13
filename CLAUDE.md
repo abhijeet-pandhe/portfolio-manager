@@ -102,6 +102,7 @@ Copy `.env.example` to `.env`. Required keys:
 ```
 KITE_API_KEY=
 KITE_API_SECRET=
+KITE_ALLOWED_IPS=          # comma-separated static IP(s) whitelisted on the Kite developer console
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=
@@ -110,3 +111,5 @@ DB_NAME=portfolio_manager
 ```
 
 MySQL database must be created manually before running `setup db`.
+
+`assertAllowedIp()` (`src/config/kite.js`) checks the machine's current public egress IP against `KITE_ALLOWED_IPS` before any real order is placed (`portfolio init --execute`, `rebalance run`), so a non-whitelisted IP fails fast with a clear error instead of failing per-order against the Kite API.
