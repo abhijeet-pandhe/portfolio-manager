@@ -1,13 +1,15 @@
 const { getKite } = require('../config/kite');
 const { getPool } = require('../config/database');
+const { prompt } = require('../helpers');
 
 async function login() {
   const url = getKite().getLoginURL();
-  console.log('\nOpen this URL in your browser to authenticate with Zerodha:\n');
+  console.log('\nOpen this URL in your browser to authenticate with Zerodha:');
   console.log(url);
-  console.log('\nAfter login, Zerodha will redirect you to your app\'s redirect URL.');
-  console.log('Copy the "request_token" value from that URL and run:\n');
-  console.log('  node src/index.js auth callback <request_token>\n');
+  const requestToken = await prompt('\nPaste the "request_token" value from that URL: ');
+  if (!requestToken) throw new Error('request_token is required');
+
+  await callback(requestToken);
 }
 
 async function callback(requestToken) {

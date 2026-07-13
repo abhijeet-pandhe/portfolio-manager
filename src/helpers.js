@@ -9,9 +9,13 @@ function sqlIn(arr) {
   return arr.map(() => '?').join(',');
 }
 
-function confirm(question) {
+function prompt(question) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(r => rl.question(question, ans => { rl.close(); r(ans.trim().toLowerCase()); }));
+  return new Promise(r => rl.question(question, ans => { rl.close(); r(ans.trim()); }));
+}
+
+async function confirm(question) {
+  return (await prompt(question)).toLowerCase();
 }
 
 // Whole-rupee formatting for large allocation amounts
@@ -54,4 +58,4 @@ function cleanYahooError(err) {
   return msg;
 }
 
-module.exports = { sleep, sqlIn, confirm, inr, inrd, pct, withRetry, cleanYahooError };
+module.exports = { sleep, sqlIn, prompt, confirm, inr, inrd, pct, withRetry, cleanYahooError };
