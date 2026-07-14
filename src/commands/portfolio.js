@@ -3,7 +3,7 @@ const chalk = require('chalk');
 const Table = require('cli-table3');
 
 const { getPool } = require('../config/database');
-const { getKite, assertValidSession, assertSufficientFunds, assertAllowedIp } = require('../config/kite');
+const { getKite, marketValidation } = require('../config/kite');
 const { calculateWeights } = require('../services/allocation');
 const { getNifty50Symbols } = require('../services/nse');
 const { calculateRankings } = require('../services/ranking');
@@ -182,14 +182,8 @@ async function initPortfolio(totalAmount, execute = false) {
   const ans = await confirm(`Buy 1 share each of ${orders.length} stocks? (yes/no): `);
   if (ans !== 'yes') { console.log('Aborted.'); return; }
 
-  // Verify the Kite session is actually live before touching real orders
-  await assertValidSession();
-
-  // Verify our egress IP is whitelisted before touching real orders
-  await assertAllowedIp();
-
-  // ── Verify enough funds are available to execute the order ──
-  await assertSufficientFunds(totalAmount);
+  // ── Verify the if we can place orders ──
+  await marketValidation(totalAmount);
 
   console.log('');
 

@@ -5,7 +5,7 @@ const Table = require('cli-table3');
 const { yf: yahooFinance, toYFSymbol } = require('../config/yahoo');
 
 const { getPool } = require('../config/database');
-const { getKite, assertValidSession, assertSufficientFunds, assertAllowedIp } = require('../config/kite');
+const { getKite, marketValidation } = require('../config/kite');
 const { getNifty50Symbols } = require('./nse');
 const { calculateRankings } = require('./ranking');
 const { calculateWeights } = require('./allocation');
@@ -350,14 +350,8 @@ async function runRebalance(sip, dryRun = true) {
   console.log(chalk.bold.red('\n⚠  This will place REAL orders on your Zerodha account.'));
   if (await confirm('Type "yes" to proceed: ') !== 'yes') { console.log('Aborted.'); return; }
 
-  // ── Verify the Kite session is actually live before touching real orders ──
-  await assertValidSession();
-
-  // ── Verify our egress IP is whitelisted before touching real orders ──
-  await assertAllowedIp();
-
-  // ── Verify enough funds are available to cover this month's SIP ──
-  await assertSufficientFunds(sip);
+  // ── Verify the if we can place orders ──
+  await marketValidation(sip);
 
   // ── Execute sells ──
   let actualProceeds = 0;

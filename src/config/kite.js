@@ -25,7 +25,7 @@ async function assertValidSession() {
 
 async function assertSufficientFunds(requiredAmount) {
   const equity = await getKite().getMargins('equity');
-  const availableFunds = equity.net;
+  const availableFunds = Math.round(equity.net);
   if (availableFunds < requiredAmount) {
     throw new Error(
       `Insufficient funds in Kite account: available ₹${availableFunds}, required ₹${requiredAmount}`
@@ -47,4 +47,34 @@ async function assertAllowedIp() {
   }
 }
 
-module.exports = { getKite, assertValidSession, assertSufficientFunds, assertAllowedIp };
+async function assertMarketOpen() {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(Date.now() + IST_OFFSET_MS);
+  const day = istNow.getUTCDay(); // 0=Sun, 6=Sat (istNow is already shifted to IST)
+  const minutesSinceMidnight = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
+
+  const isWeekday = day >= 1 && day <= 5;
+  const isMarketHours = minutesSinceMidnight >= 9 * 60 + 15 && minutesSinceMidnight <= 15 * 60 + 30;
+
+  if (!isWeekday || !isMarketHours) {
+    const hh = String(istNow.getUTCHours()).padStart(2, '0');
+    const mm = String(istNow.getUTCMinutes()).padStart(2, '0');
+    throw new Error(`Market is closed (IST time: ${hh}:${mm})`);
+  }
+}
+
+async function marketValidation(amount) {
+  // Verify the Kite session is actually live before touching real orders
+  await assertValidSession();
+
+  // Verify our egress IP is whitelisted before touching real orders
+  await assertAllowedIp();
+
+  // Verify the market is open before placing orders
+  await assertMarketOpen();
+
+  // ── Verify enough funds are available to execute the order ──
+  await assertSufficientFunds(amount);
+}
+
+module.exports = { getKite, marketValidation };
