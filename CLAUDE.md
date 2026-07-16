@@ -47,7 +47,7 @@ node -e "require('dotenv').config(); require('./src/services/rebalance'); consol
 
 ```
 NSE CSV  ──→  nse.js            (Nifty 50 constituent list)
-Yahoo Finance ──→  ranking.js    (12M / 3M adjclose returns, chart API)
+Yahoo Finance ──→  ranking.js    (12M / 6M / 3M adjclose returns, chart API)
                ──→  rebalance.js  (getCurrentPrices via quote API)
                ──→  corporateActions.js (split events)
 Zerodha Kite  ──→  rebalance.js  (placeOrder — buy/sell)
@@ -57,7 +57,7 @@ MySQL         ──→  all services   (holdings, transactions, snapshots, conf
 
 ### Strategy logic (see strategy.md for full spec)
 
-1. **Ranking** (`services/ranking.js`): score = 70% × 12M adjclose return + 30% × 3M adjclose return. All 50 Nifty stocks are scored; top 15 form the portfolio.
+1. **Ranking** (`services/ranking.js`): score = 20% × 12M adjclose return + 30% × 6M adjclose return + 50% × 3M adjclose return. All 50 Nifty stocks are scored; top 15 form the portfolio.
 2. **Entry/Exit rules**: entry eligible = rank ≤ 12; hold buffer = rank 13–20; exit = rank > 20 or removed from Nifty 50.
 3. **Capital allocation** (`services/allocation.js`): score = absolute return (< 12 months held) or XIRR (≥ 12 months). Scores are offset by the minimum, then normalised to weights. The portfolio pool is distributed proportionally; the worst position gets weight 0.
 4. **Pool accounting** (`services/rebalance.js`): a central `portfolio_pool` in the `config` table accumulates SIP + sell proceeds. Each stock also has a per-position `cash_pool` (stored in `holdings.cash_pool`) that carries over fractional allocation that couldn't buy a whole share. Both zero out after a successful rebalance.

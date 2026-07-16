@@ -68,9 +68,11 @@ Recommended formula:
 
 ```text
 Ranking Score =
-70% × 12 Month Return
+20% × 12 Month Return
 +
-30% × 3 Month Return
+30% × 6 Month Return
++
+50% × 3 Month Return
 ```
 
 The ranking score is calculated for all current Nifty 50 stocks.
@@ -79,12 +81,12 @@ The ranking score is calculated for all current Nifty 50 stocks.
 
 ## Ranking Example
 
-| Stock    | 12M Return | 3M Return | Score |
-| -------- | ---------- | --------- | ----- |
-| BEL      | 40%        | 10%       | 31%   |
-| SBIN     | 35%        | 15%       | 29%   |
-| Reliance | 20%        | 8%        | 16.4% |
-| TCS      | 5%         | -2%       | 2.9%  |
+| Stock    | 12M Return | 6M Return | 3M Return | Score |
+| -------- | ---------- | --------- | --------- | ----- |
+| SBIN     | 35%        | 20%       | 15%       | 20.5% |
+| BEL      | 40%        | 22%       | 10%       | 19.6% |
+| Reliance | 20%        | 12%       | 8%        | 11.6% |
+| TCS      | 5%         | 0%        | -2%       | 0%    |
 
 Stocks are sorted descending by score.
 

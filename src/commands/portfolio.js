@@ -23,9 +23,9 @@ async function showRankings() {
   const rankings = await calculateRankings(symbols);
 
   const table = new Table({
-    head: ['Rank', 'Symbol', 'LTP', '12M Return', '3M Return', 'Score', 'Status'],
+    head: ['Rank', 'Symbol', 'LTP', '12M Return', '6M Return', '3M Return', 'Score', 'Status'],
     style: { head: ['cyan'] },
-    colAligns: ['right', 'left', 'right', 'right', 'right', 'right', 'left'],
+    colAligns: ['right', 'left', 'right', 'right', 'right', 'right', 'right', 'left'],
   });
 
   for (const r of rankings) {
@@ -44,6 +44,7 @@ async function showRankings() {
       r.symbol + (isHeld ? chalk.cyan(' *') : ''),
       inr(r.priceLTP),
       pct(r.ret12m),
+      pct(r.ret6m),
       pct(r.ret3m),
       pct(r.score),
       status,

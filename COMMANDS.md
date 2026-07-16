@@ -88,7 +88,7 @@ Concise portfolio dashboard: summary (value, invested, P&L, return, XIRR, cash p
 ```bash
 node src/index.js portfolio rankings
 ```
-Shows the full Nifty 50 ranking table with each stock's 12M return, 3M return, and composite score. Highlights which held stocks are at risk of exit.
+Shows the full Nifty 50 ranking table with each stock's 12M return, 6M return, 3M return, and composite score. Highlights which held stocks are at risk of exit.
 
 ---
 
