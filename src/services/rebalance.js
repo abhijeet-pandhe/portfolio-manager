@@ -399,7 +399,7 @@ async function runRebalance(sip, dryRun = true) {
 
     if (qty > 0) {
       const ok = await executeBuy(b.symbol, qty, price, pool);
-      if (ok) leftover -= - qty * price;
+      if (ok) leftover -= qty * price;
     }
 
     // UPDATE only works if the holding row exists. If the first-share buy also failed,
