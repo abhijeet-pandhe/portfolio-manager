@@ -37,7 +37,7 @@ Same as above but places the actual buy orders on Zerodha.
 
 ---
 
-## Every Trading Day
+## Kite Authentication
 
 ```bash
 node src/index.js auth status
@@ -50,13 +50,6 @@ Checks if the stored token is still valid. Kite tokens expire at midnight, so re
 node src/index.js auth callback <request_token>
 ```
 Re-authenticate. Run `auth login` first to get a fresh URL, then this to save the new token.
-
----
-
-```bash
-node src/index.js portfolio status
-```
-Shows all held positions — quantity, average cost, current price, P&L, and the allocation score each position would get in the next monthly investment.
 
 ---
 
