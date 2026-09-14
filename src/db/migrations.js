@@ -1,4 +1,4 @@
-const { getPool } = require('../config/database');
+const { pool } = require('../config/database');
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS config (
@@ -48,7 +48,6 @@ const TABLES = [
 ];
 
 async function migrate() {
-  const pool = getPool();
   for (const sql of TABLES) {
     await pool.execute(sql);
   }

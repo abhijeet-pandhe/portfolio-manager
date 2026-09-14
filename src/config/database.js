@@ -26,3 +26,4 @@ async function closePool() {
 }
 
 module.exports = { getPool, closePool };
+Object.defineProperty(module.exports, 'pool', { get: getPool, enumerable: true });

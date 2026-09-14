@@ -1,5 +1,5 @@
 const { getKite } = require('../config/kite');
-const { getPool } = require('../config/database');
+const { pool } = require('../config/database');
 const { prompt } = require('../helpers');
 
 async function login() {
@@ -20,7 +20,6 @@ async function callback(requestToken) {
   const session = await kite.generateSession(requestToken, secret);
   kite.setAccessToken(session.access_token);
 
-  const pool = getPool();
   await pool.execute(
     'INSERT INTO config (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = ?, updated_at = NOW()',
     ['access_token', session.access_token, session.access_token]
@@ -34,7 +33,6 @@ async function callback(requestToken) {
 
 async function loadAccessToken() {
   try {
-    const pool = getPool();
     const [rows] = await pool.execute(
       'SELECT `value` FROM config WHERE `key` = ?',
       ['access_token']

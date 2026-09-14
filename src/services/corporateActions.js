@@ -2,7 +2,7 @@ const dayjs = require('dayjs');
 const chalk = require('chalk');
 const { yf: yahooFinance, toYFSymbol } = require('../config/yahoo');
 
-const { getPool } = require('../config/database');
+const { pool } = require('../config/database');
 const { sleep, withRetry, cleanYahooError } = require('../helpers');
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -25,8 +25,6 @@ const { sleep, withRetry, cleanYahooError } = require('../helpers');
  * so both are handled automatically.
  */
 async function checkAndApplySplits(heldSymbols) {
-  const pool = getPool();
-
   console.log(chalk.bold('Checking for splits / bonus issues...'));
 
   let adjustedCount = 0;

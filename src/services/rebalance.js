@@ -4,7 +4,7 @@ const Table = require('cli-table3');
 
 const { yf: yahooFinance, toYFSymbol } = require('../config/yahoo');
 
-const { getPool } = require('../config/database');
+const { pool } = require('../config/database');
 const { getKite, marketValidation } = require('../config/kite');
 const { getNifty50Symbols } = require('./nse');
 const { calculateRankings } = require('./ranking');
@@ -15,7 +15,7 @@ const { sleep, sqlIn, confirm, inr, inrd, pct, withRetry, cleanYahooError } = re
 // ─── DB helpers ───────────────────────────────────────────────────────────────
 
 async function getHeldSymbols() {
-  const [rows] = await getPool().execute('SELECT symbol FROM holdings WHERE quantity > 0');
+  const [rows] = await pool.execute('SELECT symbol FROM holdings WHERE quantity > 0');
   return rows.map(r => r.symbol);
 }
 
@@ -84,9 +84,9 @@ async function waitForOrderCompletion(orderId) {
   return getFinalOrderStatus(orderId);
 }
 
-async function upsertCashPool(db, symbol, amount, today) {
+async function upsertCashPool(symbol, amount, today) {
   const cashPool = amount.toFixed(2);
-  await db.execute(
+  await pool.execute(
     `INSERT INTO holdings (symbol, quantity, average_price, first_buy_date, cash_pool)
      VALUES (?, 0, 0, ?, ?)
      ON DUPLICATE KEY UPDATE cash_pool=?, updated_at=NOW()`,
@@ -98,7 +98,7 @@ async function upsertCashPool(db, symbol, amount, today) {
  * Polls previously-placed orders until they settle, then records each COMPLETE fill.
  * Returns one result per placed order ({ recorded, amount, fillQty, ... }).
  */
-async function finalizeOrders(orders, pool) {
+async function finalizeOrders(orders) {
   const placed = orders.filter(Boolean);
   if (!placed.length) return [];
 
@@ -121,7 +121,7 @@ async function finalizeOrders(orders, pool) {
     if (status === 'CANCELLED' || status === 'REJECTED') {
       process.stdout.write(chalk.red(`  ✗ ${o.symbol} ${o.type} order ${o.orderId} ${status.toLowerCase()} — no transaction recorded\n`));
       if (o.type === 'BUY' && o.totalPool !== undefined) {
-        await upsertCashPool(pool, o.symbol, o.totalPool, today);
+        await upsertCashPool(o.symbol, o.totalPool, today);
         process.stdout.write(`    → ${inr(o.totalPool)} returned to ${o.symbol} cash pool\n`);
       }
       results.push({ order: o, recorded: false, amount: 0, fillQty: 0 });
@@ -255,7 +255,7 @@ function printAllocationTable(buyPlan, poolToDistribute, firstShareCosts = {}) {
   console.log(`  Total spent           : ${chalk.cyan(inr(totalSpent))}`);
 }
 
-async function saveSnapshot(rankings, toSell, toBuy, weights, pool) {
+async function saveSnapshot(rankings, toSell, toBuy, weights) {
   const today = dayjs().format('YYYY-MM-DD');
   const scoreMap = Object.fromEntries(weights.map(w => [w.symbol, w.rawScore]));
   for (const r of rankings) {
@@ -272,7 +272,7 @@ async function saveSnapshot(rankings, toSell, toBuy, weights, pool) {
 
 // ─── Core allocation builder ──────────────────────────────────────────────────
 
-async function buildBuyPlan(finalHoldings, existingHoldings, toBuy, prices, poolToDistribute, pool) {
+async function buildBuyPlan(finalHoldings, existingHoldings, toBuy, prices, poolToDistribute) {
   const weights = await calculateWeights(finalHoldings, prices);
 
   // Batch-fetch cash_pool for all existing holdings in one query
@@ -310,8 +310,6 @@ async function buildBuyPlan(finalHoldings, existingHoldings, toBuy, prices, pool
 // ─── Main rebalance ───────────────────────────────────────────────────────────
 
 async function runRebalance(sip, dryRun = true) {
-  const pool = getPool();
-
   console.log(chalk.bold(`\n${'═'.repeat(55)}`));
   console.log(chalk.bold(`  MONTHLY REBALANCE${dryRun ? chalk.yellow(' [DRY RUN]') : ''}`));
   console.log(chalk.bold(`${'═'.repeat(55)}\n`));
@@ -394,7 +392,7 @@ async function runRebalance(sip, dryRun = true) {
 
   // ── Steps 4-8 (strategy): weights → distribute pool → buy from stock pools ──
   const finalHoldings = [...heldAfterSell, ...toBuy];
-  const buyPlan = await buildBuyPlan(finalHoldings, heldAfterSell, toBuy, prices, workingPool, pool);
+  const buyPlan = await buildBuyPlan(finalHoldings, heldAfterSell, toBuy, prices, workingPool);
 
   printAllocationTable(buyPlan, workingPool, firstShareCosts);
 
@@ -420,7 +418,7 @@ async function runRebalance(sip, dryRun = true) {
     if (order) sellOrders.push(order);
   }
 
-  const sellResults = await finalizeOrders(sellOrders, pool);
+  const sellResults = await finalizeOrders(sellOrders);
   let actualProceeds = 0;
   let actualRecovered = 0;
   for (const r of sellResults) {
@@ -477,13 +475,13 @@ async function runRebalance(sip, dryRun = true) {
 
     // No order placed (nothing to buy, or placement failed) — the full
     // reserved amount stays parked in this stock's pool untouched.
-    await upsertCashPool(pool, b.symbol, totalPool, today);
+    await upsertCashPool(b.symbol, totalPool, today);
   }
 
   // ── Confirm buy fills and record transactions/holdings ──
-  await finalizeOrders(buyOrders, pool);
+  await finalizeOrders(buyOrders);
 
-  await saveSnapshot(rankings, toSell, toBuy, buyPlan, pool);
+  await saveSnapshot(rankings, toSell, toBuy, buyPlan);
   console.log(chalk.green('\nRebalance complete. Stock pools updated.'));
 }
 

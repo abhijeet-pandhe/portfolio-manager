@@ -2,7 +2,7 @@ const dayjs = require('dayjs');
 const chalk = require('chalk');
 const Table = require('cli-table3');
 
-const { getPool } = require('../config/database');
+const { pool } = require('../config/database');
 const { getKite, marketValidation } = require('../config/kite');
 const { calculateWeights } = require('../services/allocation');
 const { getNifty50Symbols } = require('../services/nse');
@@ -14,7 +14,6 @@ const { confirm, inr, inrd, pct } = require('../helpers');
 // ─── rankings ────────────────────────────────────────────────────────────────
 
 async function showRankings() {
-  const pool = getPool();
   const [heldRows] = await pool.execute('SELECT symbol FROM holdings WHERE quantity > 0');
   const held = heldRows.map(r => r.symbol);
 
@@ -59,8 +58,6 @@ async function showRankings() {
 // ─── transactions ─────────────────────────────────────────────────────────────
 
 async function showTransactions(symbol) {
-  const pool = getPool();
-
   const [rows] = symbol
     ? await pool.execute(
         'SELECT * FROM transactions WHERE symbol = ? ORDER BY trade_date DESC, id DESC LIMIT 100',
@@ -108,8 +105,6 @@ async function showTransactions(symbol) {
  *     against that pool (by which point the positions have real returns).
  */
 async function initPortfolio(totalAmount, execute = false) {
-  const pool = getPool();
-
   const [[{ cnt }]] = await pool.execute('SELECT COUNT(*) AS cnt FROM holdings WHERE quantity > 0');
   if (cnt > 0) {
     console.log(chalk.yellow(`\nWarning: Strategy portfolio already has ${cnt} position(s).`));
@@ -194,7 +189,7 @@ async function initPortfolio(totalAmount, execute = false) {
     if (order) pendingOrders.push(order);
   }
 
-  await finalizeOrders(pendingOrders, pool);
+  await finalizeOrders(pendingOrders);
 
   console.log(chalk.green(`\nInitialisation complete.`));
   console.log(`  node src/index.js rebalance preview --amount <monthly_sip>\n`);
@@ -203,8 +198,6 @@ async function initPortfolio(totalAmount, execute = false) {
 // ─── sync ─────────────────────────────────────────────────────────────────────
 
 async function syncFromZerodha() {
-  const pool = getPool();
-
   console.log(chalk.yellow(
     '\n⚠  WARNING: sync imports ALL your Zerodha NSE holdings into the strategy database.\n' +
     '   Only use this if those holdings ARE already your strategy portfolio.\n' +
@@ -256,7 +249,6 @@ async function syncFromZerodha() {
 // ─── add (manual) ─────────────────────────────────────────────────────────────
 
 async function addHolding(symbol, quantity, avgPrice, date) {
-  const pool = getPool();
   const sym = symbol.toUpperCase().trim();
   const qty = parseInt(quantity);
   const avg = parseFloat(avgPrice);
@@ -295,7 +287,6 @@ async function addHolding(symbol, quantity, avgPrice, date) {
 // ─── set-date ─────────────────────────────────────────────────────────────────
 
 async function setDate(symbol, date) {
-  const pool = getPool();
   const sym = symbol.toUpperCase().trim();
   const d = dayjs(date, 'YYYY-MM-DD');
   if (!d.isValid()) throw new Error(`Invalid date: ${date}`);
@@ -310,7 +301,6 @@ async function setDate(symbol, date) {
 // ─── snapshots ────────────────────────────────────────────────────────────────
 
 async function showSnapshots() {
-  const pool = getPool();
   const [dates] = await pool.execute(
     'SELECT DISTINCT rebalance_date FROM monthly_snapshots ORDER BY rebalance_date DESC LIMIT 12'
   );
@@ -364,7 +354,6 @@ function formatHeldDuration(firstBuyDate) {
 }
 
 async function showDetails() {
-  const pool = getPool();
   const [holdings] = await pool.execute('SELECT * FROM holdings WHERE quantity > 0');
 
   if (!holdings.length) {

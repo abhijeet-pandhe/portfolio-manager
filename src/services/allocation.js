@@ -1,5 +1,5 @@
 const dayjs = require('dayjs');
-const { getPool } = require('../config/database');
+const { pool } = require('../config/database');
 const { xirr } = require('./xirr');
 const { sqlIn } = require('../helpers');
 
@@ -10,8 +10,6 @@ const { sqlIn } = require('../helpers');
  */
 async function calculateWeights(symbols, currentPrices) {
   if (!symbols.length) return [];
-
-  const pool = getPool();
 
   // Batch-fetch all holdings in one query
   const [holdings] = await pool.execute(
