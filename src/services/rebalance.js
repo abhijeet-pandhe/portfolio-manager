@@ -229,7 +229,8 @@ function printAllocationTable(buyPlan, poolToDistribute, firstShareCosts = {}) {
     colAligns: ['left','right','right','right','right','right','right','right','right','right'],
   });
 
-  for (const b of buyPlan) {
+  const sorted = [...buyPlan].sort((a, b) => b.weight - a.weight);
+  for (const b of sorted) {
     const label = b.symbol + (b.isNew ? chalk.yellow(' NEW') : '');
     table.push([
       label,
