@@ -7,7 +7,7 @@ const { getKite, marketValidation } = require('../config/kite');
 const { calculateWeights } = require('../services/allocation');
 const { getNifty50Symbols } = require('../services/nse');
 const { calculateRankings } = require('../services/ranking');
-const { getCurrentPrices, executeBuy } = require('../services/rebalance');
+const { getCurrentPrices, placeBuyOrder, finalizeOrders } = require('../services/rebalance');
 const { xirr } = require('../services/xirr');
 const { confirm, inr, inrd, pct } = require('../helpers');
 
@@ -188,9 +188,13 @@ async function initPortfolio(totalAmount, execute = false) {
 
   console.log('');
 
+  const pendingOrders = [];
   for (const o of orders) {
-    await executeBuy(o.symbol, 1, o.price, pool);
+    const order = await placeBuyOrder(o.symbol, 1, o.price);
+    if (order) pendingOrders.push(order);
   }
+
+  await finalizeOrders(pendingOrders, pool);
 
   console.log(chalk.green(`\nInitialisation complete.`));
   console.log(`  node src/index.js rebalance preview --amount <monthly_sip>\n`);
